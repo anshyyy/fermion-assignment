@@ -596,56 +596,49 @@ export class WebRtcGateway
    */
   private async handleUserLeave(client: Socket): Promise<void> {
     try {
-      const roomId = client.data.roomId;
-      const userId = client.data.userId;
-      const role = client.data.role;
-
-      if (!roomId || !userId) return;
-
-      // Get user session before removal
-      const userSession = await this.roomService.getUserSession(roomId, userId);
-
-      // Remove user from room
-      await this.roomService.removeUserFromRoom(roomId, userId);
+      const streamId = client.data.streamId;
+      
+      if (!streamId) return;
 
       // Leave socket room
-      await client.leave(roomId);
+      await client.leave(streamId);
 
-      // Close user's producers and consumers
-      if (userSession) {
-        // Close producers
-        for (const producer of userSession.producers) {
-          this.mediaSoupService.closeProducer(producer.producerId);
-        }
-
-        // Close consumers
-        for (const consumer of userSession.consumers) {
-          this.mediaSoupService.closeConsumer(consumer.id);
-        }
-
-        // Notify others based on user role
-        if (role === UserRole.STREAMER) {
-          this.server.to(roomId).emit(SocketEvents.STREAM_ENDED, {
-            streamerId: userId,
-          });
-        } else if (role === UserRole.PARTICIPANT) {
-          // Notify others that a participant stopped streaming
-          this.server.to(roomId).emit('participant-stopped-streaming', {
-            participantId: userId,
-          });
-        }
+      // Handle different user types
+      if (client.data.isHost) {
+        // Host left - notify everyone stream ended
+        this.server.to(streamId).emit('stream-ended');
+        this.logger.log(`🛑 Host left - stream ended`);
+        
+      } else if (client.data.isGuest) {
+        // Guest left - notify others
+        this.server.to(streamId).emit('guest-left', {
+          guestId: client.id,
+          guestName: client.data.guestName
+        });
+        
+        // Notify viewers about participant leaving
+        this.server.to(streamId).emit('participant-left', {
+          participantId: client.id
+        });
+        
+        this.logger.log(`🎤 Guest "${client.data.guestName}" left`);
+        
+      } else if (client.data.isViewer) {
+        // Viewer left - just log
+        this.logger.log(`👀 Viewer "${client.data.viewerName}" left`);
       }
 
-      // Notify other room members
-      client.to(roomId).emit(SocketEvents.USER_LEFT, {
-        userId,
-        roomId,
-      });
+      // Broadcast updated counts
+      this.broadcastParticipantCountUpdate(streamId);
+      this.broadcastParticipantsUpdate(streamId);
 
-      // Update viewer count
-      this.broadcastViewerCount(roomId);
+      // Clear client data
+      client.data.streamId = null;
+      client.data.isHost = false;
+      client.data.isGuest = false;
+      client.data.isViewer = false;
 
-      this.logger.log(`👋 User ${client.id} left room ${roomId}`);
+      this.logger.log(`👋 User ${client.id} left main stream`);
 
     } catch (error) {
       this.logger.error(`Error handling user leave:`, error);
@@ -708,6 +701,286 @@ export class WebRtcGateway
         message: 'Failed to get participants',
         error: error instanceof Error ? error.message : 'Unknown error',
       });
+    }
+  }
+
+  /**
+   * Start hosting the main stream
+   */
+  @SubscribeMessage('start-hosting')
+  async handleStartHosting(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { hostName: string },
+  ): Promise<void> {
+    try {
+      const { hostName } = data;
+      const streamId = 'main-stream'; // Fixed stream ID
+      
+      // Store stream info in socket data
+      client.data.streamId = streamId;
+      client.data.hostName = hostName;
+      client.data.isHost = true;
+
+      // Join the main stream room
+      await client.join(streamId);
+
+      // Notify viewers about new host (if any viewers already there)
+      client.to(streamId).emit('participant-joined', {
+        participant: {
+          id: client.id,
+          isHost: true,
+          hostName: hostName
+        }
+      });
+
+      // Broadcast updated participant count and list
+      this.broadcastParticipantCountUpdate(streamId);
+      this.broadcastParticipantsUpdate(streamId);
+
+      this.logger.log(`🎥 ${hostName} started hosting the main stream`);
+      this.logger.debug(`🔍 Socket ${client.id} data:`, {
+        streamId: client.data.streamId,
+        hostName: client.data.hostName,
+        isHost: client.data.isHost
+      });
+
+      // Verify the socket joined the room
+      const roomSockets = await this.server.in(streamId).fetchSockets();
+      this.logger.debug(`🏠 Room ${streamId} now has ${roomSockets.length} sockets`);
+
+    } catch (error) {
+      this.logger.error('Error starting hosting:', error);
+      client.emit('error', { message: 'Failed to start hosting' });
+    }
+  }
+
+  /**
+   * Stop hosting the main stream
+   */
+  @SubscribeMessage('stop-hosting')
+  async handleStopHosting(@ConnectedSocket() client: Socket): Promise<void> {
+    try {
+      const streamId = 'main-stream';
+      
+      if (client.data.isHost) {
+        // Notify all participants that stream ended
+        this.server.to(streamId).emit('stream-ended');
+        
+        // Leave the room
+        await client.leave(streamId);
+        
+        // Clear stream data
+        client.data.streamId = null;
+        client.data.hostName = null;
+        client.data.isHost = false;
+
+        this.logger.log(`🛑 Main stream ended`);
+      }
+
+    } catch (error) {
+      this.logger.error('Error stopping hosting:', error);
+    }
+  }
+
+  /**
+   * Get status of the main stream
+   */
+  @SubscribeMessage('get-stream-status')
+  async handleGetStreamStatus(@ConnectedSocket() client: Socket): Promise<any> {
+    try {
+      const streamId = 'main-stream';
+      
+      // Get all sockets in the main stream room
+      const sockets = await this.server.in(streamId).fetchSockets();
+      
+      this.logger.debug(`🔍 Checking room ${streamId} with ${sockets.length} sockets:`);
+      sockets.forEach((socket, index) => {
+        this.logger.debug(`  Socket ${index + 1}: ${socket.id}`, {
+          isHost: socket.data.isHost,
+          isGuest: socket.data.isGuest,
+          isViewer: socket.data.isViewer,
+          hostName: socket.data.hostName,
+          guestName: socket.data.guestName
+        });
+      });
+      
+      // Find the host
+      const host = sockets.find(socket => socket.data.isHost);
+      this.logger.debug(`🎯 Found host:`, host ? {
+        id: host.id,
+        hostName: host.data.hostName,
+        isHost: host.data.isHost
+      } : 'No host found');
+      
+      const status = {
+        isLive: !!host,
+        hostName: host?.data.hostName || null,
+        participantCount: sockets.length,
+        guestCount: sockets.filter(s => s.data.isGuest).length,
+        viewerCount: sockets.filter(s => s.data.isViewer).length
+      };
+
+      this.logger.debug(`📊 Main stream status:`, status);
+      
+      // Return the status directly (Socket.io will handle the callback)
+      return status;
+
+    } catch (error) {
+      this.logger.error('Error getting stream status:', error);
+      // Return empty status on error
+      return { isLive: false, hostName: null, participantCount: 0 };
+    }
+  }
+
+  /**
+   * Join main stream as viewer (watch only)
+   */
+  @SubscribeMessage('join-stream-as-viewer')
+  async handleJoinStreamAsViewer(@ConnectedSocket() client: Socket): Promise<void> {
+    try {
+      const streamId = 'main-stream';
+      
+      // Join the main stream room
+      await client.join(streamId);
+      
+      // Store viewer info
+      client.data.streamId = streamId;
+      client.data.isViewer = true;
+      client.data.viewerName = 'Viewer-' + Math.random().toString(36).substr(2, 6);
+
+      // Send current participants to the new viewer
+      const participants = await this.getCurrentParticipants(streamId);
+      client.emit('participants-update', participants);
+
+      // Notify host and guests that someone is watching
+      client.to(streamId).emit('viewer-joined', {
+        viewerName: client.data.viewerName
+      });
+
+      // Broadcast updated participant count
+      this.broadcastParticipantCountUpdate(streamId);
+
+      this.logger.log(`👀 Viewer "${client.data.viewerName}" joined main stream`);
+
+    } catch (error) {
+      this.logger.error('Error joining as viewer:', error);
+      client.emit('error', { message: 'Failed to join stream' });
+    }
+  }
+
+  /**
+   * Join main stream as guest (with camera)
+   */
+  @SubscribeMessage('join-stream-as-guest')
+  async handleJoinStreamAsGuest(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { guestName: string },
+  ): Promise<void> {
+    try {
+      const streamId = 'main-stream';
+      const { guestName } = data;
+      
+      // Join the main stream room
+      await client.join(streamId);
+      
+      // Store guest info
+      client.data.streamId = streamId;
+      client.data.isGuest = true;
+      client.data.guestName = guestName;
+
+      // Notify host and others that guest joined
+      client.to(streamId).emit('guest-joined', {
+        guest: {
+          id: client.id,
+          name: guestName,
+          isGuest: true,
+          guestName: guestName
+        }
+      });
+
+      // Notify viewers about new participant
+      client.to(streamId).emit('participant-joined', {
+        participant: {
+          id: client.id,
+          isGuest: true,
+          guestName: guestName
+        }
+      });
+
+      // Broadcast updated participant count and list
+      this.broadcastParticipantCountUpdate(streamId);
+      this.broadcastParticipantsUpdate(streamId);
+
+      this.logger.log(`🎤 Guest "${guestName}" joined main stream`);
+
+    } catch (error) {
+      this.logger.error('Error joining as guest:', error);
+      client.emit('error', { message: 'Failed to join as guest' });
+    }
+  }
+
+  /**
+   * Get current participants in the stream
+   */
+  private async getCurrentParticipants(streamId: string): Promise<any[]> {
+    try {
+      const sockets = await this.server.in(streamId).fetchSockets();
+      const participants: any[] = [];
+      
+      sockets.forEach(socket => {
+        if (socket.data.isHost) {
+          participants.push({
+            id: socket.id,
+            isHost: true,
+            hostName: socket.data.hostName
+          });
+        } else if (socket.data.isGuest) {
+          participants.push({
+            id: socket.id,
+            isGuest: true,
+            guestName: socket.data.guestName
+          });
+        }
+      });
+      
+      return participants;
+    } catch (error) {
+      this.logger.error('Error getting current participants:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Broadcast participant count update to all room members
+   */
+  private async broadcastParticipantCountUpdate(streamId: string): Promise<void> {
+    try {
+      const sockets = await this.server.in(streamId).fetchSockets();
+      const count = sockets.length;
+      
+      this.server.to(streamId).emit('participant-count-update', count);
+    } catch (error) {
+      this.logger.error('Error broadcasting participant count:', error);
+    }
+  }
+
+  /**
+   * Broadcast participants list update to viewers
+   */
+  private async broadcastParticipantsUpdate(streamId: string): Promise<void> {
+    try {
+      const participants: any[] = await this.getCurrentParticipants(streamId);
+      
+      // Only send to viewers
+      const sockets = await this.server.in(streamId).fetchSockets();
+      sockets.forEach(socket => {
+        if (socket.data.isViewer) {
+          socket.emit('participants-update', participants);
+        }
+      });
+      
+    } catch (error) {
+      this.logger.error('Error broadcasting participants update:', error);
     }
   }
 } 

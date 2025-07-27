@@ -14,25 +14,25 @@ export class AppController {
   constructor(private readonly appService: AppService) {}
 
   /**
-   * Root endpoint - redirects to conference page (multi-participant)
+   * Root endpoint - redirects to streaming page
    * GET /
    */
   @Get()
   getRoot(@Res() res: Response): void {
-    this.logger.log('Root endpoint accessed, redirecting to /join');
-    res.redirect('/join');
+    this.logger.log('Root endpoint accessed, redirecting to /stream');
+    res.redirect('/stream');
   }
 
   /**
-   * Streaming endpoint - serves the broadcaster interface
+   * Streaming endpoint - serves the host interface
    * GET /stream
-   * This page allows users to start streaming their camera
+   * This page allows users to start hosting a stream
    */
   @Get('stream')
   getStreamPage(@Res() res: Response): void {
     this.logger.log('Stream page requested');
     
-    const streamPageHtml = this.appService.generateStreamPage();
+    const streamPageHtml = this.appService.generateSimpleStreamPage();
     res.setHeader('Content-Type', 'text/html');
     res.send(streamPageHtml);
   }
@@ -49,20 +49,6 @@ export class AppController {
     const watchPageHtml = this.appService.generateWatchPage();
     res.setHeader('Content-Type', 'text/html');
     res.send(watchPageHtml);
-  }
-
-  /**
-   * Conference room endpoint - serves the multi-participant interface
-   * GET /join
-   * This page allows multiple users to join and stream their cameras simultaneously
-   */
-  @Get('join')
-  getConferencePage(@Res() res: Response): void {
-    this.logger.log('Conference page requested');
-    
-    const conferencePageHtml = this.appService.generateConferencePage();
-    res.setHeader('Content-Type', 'text/html');
-    res.send(conferencePageHtml);
   }
 
   /**
@@ -94,10 +80,9 @@ export class AppController {
       version: '1.0.0',
       description: 'Real-time video streaming using WebRTC and MediaSoup',
       endpoints: [
-        'GET / - Root (redirects to /join)',
-        'GET /stream - Broadcaster interface',
-        'GET /watch - Viewer interface', 
-        'GET /join - Multi-participant conference room',
+        'GET / - Root (redirects to /stream)',
+        'GET /stream - Start hosting a stream',
+        'GET /watch - Browse and view live streams',
         'GET /health - Health check',
         'GET /api/info - API information',
         'WebSocket /socket.io - Real-time communication',

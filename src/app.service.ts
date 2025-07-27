@@ -343,14 +343,11 @@ export class AppService {
     }
 
       /**
-   * Generates the watching page HTML with live stream browser functionality
-   * This page includes:
-   * - List of active live streams
-   * - Click to join any stream as viewer
-   * - Live viewer interface
+   * Generates a simple watch page - browse live streams
+   * Users can join as guest (with camera) or watch as viewer (no camera)
    */
   generateWatchPage(): string {
-    this.logger.debug('Generating watch page HTML');
+    this.logger.debug('Generating simple watch page HTML');
     
     return `
 <!DOCTYPE html>
@@ -358,7 +355,7 @@ export class AppService {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Streams - Viewer</title>
+    <title>Watch Live Streams</title>
     <style>
         * {
             margin: 0;
@@ -368,7 +365,7 @@ export class AppService {
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: #f8f9fa;
+            background: #f5f5f5;
             min-height: 100vh;
             color: #333;
             margin: 0;
@@ -378,7 +375,7 @@ export class AppService {
         .header {
             background: white;
             padding: 1rem 2rem;
-            border-bottom: 1px solid #e9ecef;
+            border-bottom: 1px solid #ddd;
             text-align: center;
         }
         
@@ -389,99 +386,85 @@ export class AppService {
             margin: 0;
         }
         
-        .main-container {
-            max-width: 1000px;
+        .container {
+            max-width: 800px;
             margin: 2rem auto;
             padding: 0 1rem;
         }
         
-        .streams-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 1.5rem;
-            margin-bottom: 2rem;
+        .stream-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
         }
         
-        .stream-card {
+        .stream-item {
             background: white;
-            border-radius: 12px;
+            border-radius: 8px;
             padding: 1.5rem;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            border: 1px solid #e9ecef;
-            cursor: pointer;
-            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            border: 1px solid #ddd;
         }
         
-        .stream-card:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            border-color: #007bff;
-        }
-        
-        .stream-card.active {
-            border-color: #28a745;
-            background: #f8fff9;
+        .stream-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
         }
         
         .stream-title {
-            font-size: 1.1rem;
+            font-size: 1.2rem;
             font-weight: 600;
             color: #333;
-            margin-bottom: 0.5rem;
+        }
+        
+        .live-badge {
+            background: #dc3545;
+            color: white;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 500;
         }
         
         .stream-info {
             color: #666;
-            font-size: 0.9rem;
             margin-bottom: 1rem;
         }
         
-        .participant-count {
-            display: inline-block;
-            background: #e9ecef;
-            padding: 0.25rem 0.75rem;
-            border-radius: 12px;
-            font-size: 0.8rem;
-            color: #495057;
-            margin-bottom: 1rem;
+        .stream-actions {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
         }
         
-        .stream-card.active .participant-count {
-            background: #d4edda;
-            color: #155724;
-        }
-        
-        .join-btn {
-            background: #007bff;
-            color: white;
-            border: none;
+        .btn {
             padding: 0.5rem 1rem;
+            border: none;
             border-radius: 6px;
             font-size: 0.9rem;
             cursor: pointer;
-            width: 100%;
-            transition: background 0.2s ease;
+            transition: all 0.2s;
+            text-decoration: none;
+            display: inline-block;
+            text-align: center;
+            min-width: 100px;
         }
         
-        .join-btn:hover {
-            background: #0056b3;
-        }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-primary:hover { background: #0056b3; }
         
-        .stream-card.active .join-btn {
-            background: #28a745;
-        }
+        .btn-success { background: #28a745; color: white; }
+        .btn-success:hover { background: #1e7e34; }
         
-        .stream-card.active .join-btn:hover {
-            background: #1e7e34;
-        }
-        
-        .no-streams {
+        .empty-state {
             text-align: center;
             padding: 4rem 2rem;
             color: #666;
         }
         
-        .no-streams h2 {
+        .empty-state h2 {
             font-size: 1.5rem;
             margin-bottom: 1rem;
             font-weight: 500;
@@ -493,15 +476,12 @@ export class AppService {
             border: none;
             padding: 0.75rem 1.5rem;
             border-radius: 6px;
-            font-size: 0.9rem;
             cursor: pointer;
-            margin: 1rem auto;
+            margin: 2rem auto;
             display: block;
         }
         
-        .refresh-btn:hover {
-            background: #5a6268;
-        }
+        .refresh-btn:hover { background: #5a6268; }
         
         .video-container {
             position: relative;
@@ -616,200 +596,248 @@ export class AppService {
         <h1>📺 Live Streams</h1>
     </div>
     
-    <div class="main-container">
-        <div id="streamsContainer">
-            <div class="no-streams" id="noStreams">
-                <h2>No live streams available</h2>
-                <p>Check back later or start your own conference!</p>
-                <button class="refresh-btn" onclick="location.href='/join'">Start Conference</button>
+    <div class="container">
+        <div id="streamsList" class="stream-list">
+            <div class="empty-state" id="emptyState">
+                <h2>No live streams</h2>
+                <p>No one is streaming right now</p>
+                <a href="/stream" class="btn btn-primary" style="margin-top: 1rem;">Start Your Stream</a>
             </div>
         </div>
         
-        <button id="refreshBtn" class="refresh-btn">🔄 Refresh Streams</button>
+        <button id="refreshBtn" class="refresh-btn">🔄 Refresh</button>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
+        <script src="/socket.io/socket.io.js"></script>
     <script>
-        // Live Streams Browser Implementation
-        class StreamsBrowser {
+                        class StreamsBrowser {
             constructor() {
                 this.socket = io();
-                this.activeStreams = new Map();
+                this.isViewing = false;
                 
-                this.initializeEventListeners();
-                this.initializeSocketEvents();
-                this.loadActiveStreams();
-            }
-            
-            initializeEventListeners() {
-                document.getElementById('refreshBtn').addEventListener('click', () => this.refresh());
-                
-                // Auto-refresh every 30 seconds if no stream
-                setInterval(() => {
-                    if (!this.remoteStream) {
-                        this.checkForStream();
-                    }
-                }, 30000);
-            }
-            
-            initializeSocketEvents() {
                 this.socket.on('connect', () => {
-                    this.updateStatus('Connected to server', 'success');
-                    this.joinAsViewer();
+                    console.log('✅ Connected to server');
+                    this.checkAndJoinStream();
                 });
                 
                 this.socket.on('disconnect', () => {
-                    this.updateStatus('Disconnected from server', 'error');
-                    this.showNoStream();
-                });
-                
-                this.socket.on('stream-started', (data) => {
-                    this.updateStatus('Stream available! Connecting...', 'info');
-                    this.requestStream();
+                    console.log('❌ Disconnected from server');
                 });
                 
                 this.socket.on('stream-ended', () => {
-                    this.updateStatus('Stream ended', 'info');
-                    this.showNoStream();
+                    console.log('📺 Stream ended, going back to browse mode');
+                    this.showBrowseMode();
                 });
                 
-                this.socket.on('consumer-created', (data) => {
-                    this.handleConsumerCreated(data);
-                });
+                document.getElementById('refreshBtn').onclick = () => this.checkAndJoinStream();
                 
-                this.socket.on('viewer-count', (count) => {
-                    this.updateViewerCount(count);
-                });
-                
-                this.socket.on('no-stream', () => {
-                    this.updateStatus('No active stream found', 'info');
-                    this.showNoStream();
-                });
-                
-                this.socket.on('error', (error) => {
-                    this.updateStatus('Error: ' + error.message, 'error');
-                    console.error('Socket error:', error);
-                });
+                // Auto-refresh every 10 seconds
+                setInterval(() => {
+                    if (!this.isViewing) {
+                        this.checkAndJoinStream();
+                    }
+                }, 10000);
             }
             
-            joinAsViewer() {
-                this.socket.emit('join-room', { 
-                    roomId: 'main-stream',
-                    role: 'viewer'
-                });
-            }
-            
-            requestStream() {
-                this.updateStatus('Requesting stream access...', 'info');
-                this.socket.emit('request-stream');
-            }
-            
-            refresh() {
-                this.updateStatus('Refreshing...', 'info');
-                this.socket.disconnect();
-                setTimeout(() => {
-                    this.socket.connect();
-                }, 1000);
-            }
-            
-            checkForStream() {
-                this.socket.emit('check-stream');
-            }
-            
-            handleConsumerCreated(consumerData) {
-                try {
-                    this.updateStatus('Stream connected successfully!', 'success');
+            checkAndJoinStream() {
+                console.log('🔄 Checking for live streams...');
+                this.socket.emit('get-stream-status', (status) => {
+                    console.log('📊 Received stream status:', status);
                     
-                    // This would integrate with MediaSoup client library
-                    // For demonstration, we'll simulate receiving the stream
-                    this.simulateStreamReceived();
-                    
-                } catch (error) {
-                    this.updateStatus('Failed to connect to stream: ' + error.message, 'error');
-                    console.error('Consumer creation error:', error);
+                    if (status && status.isLive) {
+                        console.log('🔴 Live stream found - auto-joining as viewer');
+                        this.joinAsViewer(status);
+                    } else {
+                        console.log('📭 No live stream - showing browse mode');
+                        this.showBrowseMode();
+                    }
+                });
+            }
+            
+                         joinAsViewer(status) {
+                 this.isViewing = true;
+                 this.participants = new Map();
+                 
+                 // Update UI to viewer mode
+                 document.body.innerHTML = 
+                     '<div class="header">' +
+                         '<h1>📺 Watching Live</h1>' +
+                         '<div style="color: #666; font-size: 0.9rem;">Viewing ' + (status.hostName || 'Live Stream') + '</div>' +
+                     '</div>' +
+                     '<div class="container">' +
+                         '<div style="text-align: center; margin-bottom: 1rem;">' +
+                             '<div class="live-badge" style="display: inline-block; background: #dc3545; color: white; padding: 0.5rem 1rem; border-radius: 4px; font-size: 0.9rem;">🔴 LIVE</div>' +
+                             '<div id="participantCount" style="margin-top: 0.5rem; color: #666;">👥 ' + status.participantCount + ' people connected</div>' +
+                         '</div>' +
+                         '<div id="liveVideoGrid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; min-height: 300px;">' +
+                             '<div id="loadingMessage" style="background: #f8f9fa; height: 300px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #666; font-size: 1.1rem; border: 2px dashed #ddd;">📹 Loading live participants...</div>' +
+                         '</div>' +
+                         '<div style="text-align: center; margin-top: 2rem;">' +
+                             '<button id="joinStreamBtn" class="btn btn-success">Join Stream</button>' +
+                             '<button id="refreshBtn" class="btn" style="background: #6c757d; color: white; margin-left: 1rem;">Refresh</button>' +
+                         '</div>' +
+                     '</div>';
+                 
+                 // Add event listeners (no inline handlers)
+                 document.getElementById('joinStreamBtn').onclick = () => {
+                     window.location.href = '/stream';
+                 };
+                 document.getElementById('refreshBtn').onclick = () => {
+                     window.location.href = '/watch';
+                 };
+                 
+                 // Setup viewer socket events
+                 this.setupViewerEvents();
+                 
+                 // Join as viewer
+                 this.socket.emit('join-stream-as-viewer');
+                 console.log('👀 Joined as viewer');
+             }
+             
+             setupViewerEvents() {
+                 // Listen for live participants
+                 this.socket.on('participants-update', (participants) => {
+                     console.log('📊 Received participants update:', participants);
+                     this.displayLiveParticipants(participants);
+                 });
+                 
+                 this.socket.on('participant-joined', (data) => {
+                     console.log('🎤 Participant joined:', data);
+                     this.addLiveParticipant(data.participant);
+                 });
+                 
+                 this.socket.on('participant-left', (data) => {
+                     console.log('👋 Participant left:', data);
+                     this.removeLiveParticipant(data.participantId);
+                 });
+                 
+                 this.socket.on('participant-count-update', (count) => {
+                     const countEl = document.getElementById('participantCount');
+                     if (countEl) {
+                         countEl.textContent = '👥 ' + count + ' people connected';
+                     }
+                 });
+             }
+             
+             displayLiveParticipants(participants) {
+                 const grid = document.getElementById('liveVideoGrid');
+                 if (!grid) return;
+                 
+                 // Clear loading message
+                 const loading = document.getElementById('loadingMessage');
+                 if (loading) loading.remove();
+                 
+                 // Clear existing participants
+                 this.participants.clear();
+                 grid.innerHTML = '';
+                 
+                 const liveParticipants = participants.filter(p => p.isHost || p.isGuest);
+                 
+                 if (liveParticipants.length === 0) {
+                     grid.innerHTML = '<div style="background: #f8f9fa; height: 300px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #666; font-size: 1.1rem; border: 2px dashed #ddd;">📭 No one is streaming right now</div>';
+                     return;
+                 }
+                 
+                 liveParticipants.forEach(participant => {
+                     this.addLiveParticipant(participant);
+                 });
+             }
+             
+             addLiveParticipant(participant) {
+                 const grid = document.getElementById('liveVideoGrid');
+                 if (!grid) return;
+                 
+                 const participantCard = document.createElement('div');
+                 participantCard.className = 'participant-card';
+                 participantCard.id = 'viewer-participant-' + participant.id;
+                 participantCard.style.cssText = 'position: relative; background: #000; border-radius: 8px; overflow: hidden; height: 300px;';
+                 
+                 // Create video element (simulated for now)
+                 const videoElement = document.createElement('div');
+                 videoElement.style.cssText = 'width: 100%; height: 100%; background: linear-gradient(45deg, #667eea, #764ba2); display: flex; align-items: center; justify-content: center; color: white; font-size: 1.2rem; flex-direction: column;';
+                 
+                 videoElement.innerHTML = 
+                     '<div style="font-size: 3rem; margin-bottom: 0.5rem;">📹</div>' +
+                     '<div style="font-weight: 600;">' + (participant.hostName || participant.guestName || 'Participant') + '</div>' +
+                     '<div style="font-size: 0.9rem; opacity: 0.8; margin-top: 0.25rem;">' + (participant.isHost ? 'Host' : 'Guest') + '</div>';
+                 
+                 const nameTag = document.createElement('div');
+                 nameTag.style.cssText = 'position: absolute; bottom: 8px; left: 8px; background: rgba(0,0,0,0.7); color: white; padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.8rem;';
+                 nameTag.textContent = participant.isHost ? '🎥 ' + (participant.hostName || 'Host') : '🎤 ' + (participant.guestName || 'Guest');
+                 
+                 participantCard.appendChild(videoElement);
+                 participantCard.appendChild(nameTag);
+                 grid.appendChild(participantCard);
+                 
+                 this.participants.set(participant.id, participantCard);
+             }
+             
+             removeLiveParticipant(participantId) {
+                 const element = this.participants.get(participantId);
+                 if (element) {
+                     element.remove();
+                     this.participants.delete(participantId);
+                 }
+                 
+                 // Check if grid is empty
+                 const grid = document.getElementById('liveVideoGrid');
+                 if (grid && this.participants.size === 0) {
+                     grid.innerHTML = '<div style="background: #f8f9fa; height: 300px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #666; font-size: 1.1rem; border: 2px dashed #ddd;">📭 Stream ended</div>';
+                 }
+             }
+            
+            showBrowseMode() {
+                this.isViewing = false;
+                
+                // Reset to browse mode
+                const streamsList = document.getElementById('streamsList');
+                const emptyState = document.getElementById('emptyState');
+                
+                if (streamsList && emptyState) {
+                    streamsList.innerHTML = '';
+                    streamsList.appendChild(emptyState);
                 }
-            }
-            
-            simulateStreamReceived() {
-                // In a real implementation, this would handle the actual MediaSoup consumer
-                const remoteVideo = document.getElementById('remoteVideo');
-                const noStream = document.getElementById('noStream');
-                
-                // Hide "no stream" message and show video element
-                noStream.classList.add('hidden');
-                remoteVideo.classList.remove('hidden');
-                
-                // Note: In a real implementation, you would set remoteVideo.srcObject to the actual stream
-                this.updateStatus('Live stream active', 'success');
-            }
-            
-            showNoStream() {
-                const remoteVideo = document.getElementById('remoteVideo');
-                const noStream = document.getElementById('noStream');
-                
-                remoteVideo.classList.add('hidden');
-                noStream.classList.remove('hidden');
-                
-                if (this.remoteStream) {
-                    // Stop remote stream if it exists
-                    this.remoteStream.getTracks().forEach(track => track.stop());
-                    this.remoteStream = null;
-                }
-                
-                remoteVideo.srcObject = null;
-            }
-            
-            updateStatus(message, type = 'info') {
-                const statusEl = document.getElementById('status');
-                statusEl.textContent = message;
-                statusEl.className = 'status ' + type;
-                console.log('[Status]', message);
-            }
-            
-            updateViewerCount(count) {
-                const viewerCountEl = document.getElementById('viewerCount');
-                this.viewerCount = count;
-                viewerCountEl.textContent = \`👥 \${count} viewer\${count !== 1 ? 's' : ''}\`;
             }
         }
         
-        // Initialize the viewer client when page loads
-        document.addEventListener('DOMContentLoaded', () => {
-            new ViewerClient();
-        });
+        // These functions are no longer needed since everything is automatic
+        // Keeping them for any remaining references
+        function joinAsGuest() {
+            window.location.href = '/stream';
+        }
+        
+        function watchStream() {
+            window.location.href = '/watch';
+        }
+        
+        // Auto-check if we should join as viewer
+        new StreamsBrowser();
     </script>
 </body>
 </html>`;
     }
 
-    /**
-     * Generates the conference page HTML with multi-participant video functionality
-     * This page includes:
-     * - Multi-participant video grid
-     * - Camera and microphone controls
-     * - Participant list and status
-     * - Real-time joining/leaving notifications
-     */
-    generateConferencePage(): string {
-        this.logger.debug('Generating conference page HTML');
-        
-        return `
+
+  /**
+   * Generates a simple stream hosting page
+   * Host starts stream, guests can join with camera, viewers can watch
+   */
+  generateSimpleStreamPage(): string {
+    this.logger.debug('Generating simple stream page HTML');
+    
+    return `
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Video Conference</title>
+    <title>Start Stream</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: #f8f9fa;
+            background: #f5f5f5;
             min-height: 100vh;
             color: #333;
         }
@@ -817,543 +845,324 @@ export class AppService {
         .header {
             background: white;
             padding: 1rem 2rem;
-            border-bottom: 1px solid #e9ecef;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            border-bottom: 1px solid #ddd;
+            text-align: center;
         }
         
-        .header h1 {
-            font-size: 1.5rem;
-            font-weight: 600;
-            color: #333;
+        .container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
         }
         
-        .participant-count {
-            background: #f1f3f4;
-            padding: 0.5rem 1rem;
-            border-radius: 20px;
-            font-size: 0.9rem;
-            color: #666;
-        }
-        
-        .main-container {
+        .stream-box {
+            background: white;
+            border-radius: 8px;
             padding: 2rem;
-            max-width: 1200px;
-            margin: 0 auto;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .video-preview {
+            width: 100%;
+            height: 300px;
+            background: #000;
+            border-radius: 8px;
+            margin: 1rem 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 1.2rem;
+        }
+        
+        .video-element {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            border-radius: 8px;
         }
         
         .controls {
             display: flex;
             gap: 1rem;
             justify-content: center;
-            margin-bottom: 2rem;
+            margin: 1rem 0;
             flex-wrap: wrap;
         }
         
-        .control-btn {
+        .btn {
             padding: 0.75rem 1.5rem;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            background: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
             cursor: pointer;
-            font-size: 0.9rem;
-            transition: all 0.2s ease;
-            color: #333;
-            min-height: 44px; /* Minimum touch target for mobile */
-            min-width: 100px;
+            transition: all 0.2s;
+            min-width: 120px;
         }
         
-        .control-btn:hover {
-            background: #f8f9fa;
-            border-color: #999;
-        }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-primary:hover { background: #0056b3; }
         
-        .control-btn.primary {
-            background: #007bff;
-            color: white;
-            border-color: #007bff;
-        }
+        .btn-danger { background: #dc3545; color: white; }
+        .btn-danger:hover { background: #c82333; }
         
-        .control-btn.primary:hover {
-            background: #0056b3;
-        }
+        .btn-secondary { background: #6c757d; color: white; }
+        .btn-secondary:hover { background: #5a6268; }
         
-        .control-btn.danger {
-            background: #dc3545;
-            color: white;
-            border-color: #dc3545;
-        }
-        
-        .control-btn.danger:hover {
-            background: #c82333;
-        }
-        
-        .control-btn.active {
-            background: #28a745;
-            color: white;
-            border-color: #28a745;
-        }
-        
-        .control-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-        }
-        
-        .video-grid {
-            display: grid;
-            gap: 1rem;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            min-height: 400px;
-        }
-        
-        .video-participant {
-            position: relative;
-            background: #000;
-            border-radius: 8px;
-            overflow: hidden;
-            border: 2px solid #e9ecef;
-        }
-        
-        .video-participant.local {
-            border-color: #007bff;
-        }
-        
-        .participant-video {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            min-height: 200px;
-        }
-        
-        .participant-info {
-            position: absolute;
-            bottom: 8px;
-            left: 8px;
-            background: rgba(0, 0, 0, 0.7);
-            padding: 0.25rem 0.5rem;
-            border-radius: 4px;
-            font-size: 0.8rem;
-            color: white;
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-        
-        .status-indicator {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: #28a745;
-        }
-        
-        .status-indicator.muted {
-            background: #dc3545;
-        }
-        
-        .no-video-placeholder {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 200px;
-            color: #666;
-            background: #f8f9fa;
-        }
-        
-        .no-video-icon {
-            font-size: 2rem;
-            margin-bottom: 0.5rem;
-        }
-        
-        .empty-state {
-            text-align: center;
-            color: #666;
-            padding: 4rem 2rem;
-        }
-        
-        .empty-state h2 {
-            font-size: 1.5rem;
-            margin-bottom: 1rem;
+        .status {
+            margin: 1rem 0;
+            padding: 0.75rem;
+            border-radius: 6px;
             font-weight: 500;
         }
         
-        .empty-state p {
-            font-size: 1rem;
-            line-height: 1.5;
+        .status.success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .status.error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .status.info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        
+        .participants {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-top: 2rem;
         }
         
-        .status {
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            padding: 0.75rem 1rem;
+        .participant {
+            background: #000;
+            border-radius: 8px;
+            height: 150px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            position: relative;
+        }
+        
+        .participant-name {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            background: rgba(0,0,0,0.7);
+            padding: 0.25rem 0.5rem;
             border-radius: 4px;
-            font-size: 0.9rem;
-            z-index: 1000;
-            max-width: 300px;
+            font-size: 0.8rem;
         }
         
-        .status.success {
-            background: #d4edda;
-            color: #155724;
-            border: 1px solid #c3e6cb;
-        }
-        
-        .status.error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 1px solid #f5c6cb;
-        }
-        
-        .status.info {
-            background: #d1ecf1;
-            color: #0c5460;
-            border: 1px solid #bee5eb;
-        }
-        
-        .hidden {
-            display: none;
-        }
+        .hidden { display: none; }
         
         @media (max-width: 768px) {
-            .header {
-                padding: 1rem;
-                flex-direction: column;
-                gap: 0.5rem;
-                text-align: center;
-            }
-            
-            .main-container {
-                padding: 1rem;
-            }
-            
-            .controls {
-                gap: 0.5rem;
-                justify-content: stretch;
-            }
-            
-            .control-btn {
-                flex: 1;
-                min-width: 120px;
-                min-height: 48px; /* Larger touch targets on mobile */
-                font-size: 1rem;
-            }
-            
-            .video-grid {
-                grid-template-columns: 1fr;
-                gap: 0.5rem;
-            }
-            
-            .video-participant {
-                min-height: 250px; /* Larger video on mobile */
-            }
-            
-            .status {
-                position: fixed;
-                top: 10px;
-                left: 10px;
-                right: 10px;
-                max-width: none;
-                text-align: center;
-            }
+            .controls { flex-direction: column; align-items: center; }
+            .btn { width: 200px; }
         }
     </style>
 </head>
 <body>
     <div class="header">
-        <h1>Video Conference</h1>
-        <div class="participant-count" id="participantCount">0 participants</div>
+        <h1>📹 Start Your Stream</h1>
     </div>
     
-    <div class="main-container">
-        <div class="controls">
-            <button id="joinBtn" class="control-btn primary">Join Conference</button>
-            <button id="leaveBtn" class="control-btn danger hidden">Leave Conference</button>
-            <button id="muteBtn" class="control-btn">🎤 Mic</button>
-            <button id="videoBtn" class="control-btn active">📷 Camera</button>
-        </div>
-        
-        <div class="video-grid" id="videoGrid">
-            <div class="empty-state" id="emptyState">
-                <h2>Ready to start</h2>
-                <p>Click "Join Conference" to start your video call</p>
+    <div class="container">
+        <div class="stream-box">
+            <p>Click "Start Stream" to go live and let others join</p>
+            <div class="video-preview" id="videoPreview">
+                <div>📹 Ready to stream</div>
+            </div>
+            
+            <div class="controls">
+                <button id="startBtn" class="btn btn-primary">Start Stream</button>
+                <button id="stopBtn" class="btn btn-danger hidden">Stop Stream</button>
+                <button id="muteBtn" class="btn btn-secondary">🎤 Mic</button>
+                <button id="videoBtn" class="btn btn-secondary">📷 Camera</button>
+            </div>
+            
+            <div id="status" class="status info">Ready to start streaming</div>
+            
+            <div id="streamInfo" class="hidden">
+                <p><strong>Stream is live!</strong> Others can now join or watch</p>
+                <p>Send them to: <strong>/watch</strong></p>
             </div>
         </div>
+        
+        <div id="participants" class="participants">
+            <!-- Guests will appear here -->
+        </div>
     </div>
-    
-    <div id="status" class="status info hidden">Ready to join conference</div>
 
     <script src="/socket.io/socket.io.js"></script>
     <script>
-        // Simplified Conference Client Implementation
-        class ConferenceClient {
+        class StreamHost {
             constructor() {
                 this.socket = io();
                 this.localStream = null;
-                this.localVideo = null;
-                this.participants = new Map(); // participantId -> { element, stream, peerConnection }
-                this.isJoined = false;
+                this.isStreaming = false;
                 this.isMuted = false;
                 this.isVideoEnabled = true;
-                this.myParticipantId = null;
-                this.peerConnections = new Map(); // participantId -> RTCPeerConnection
+                this.streamId = 'main-stream'; // Single stream for everyone
+                this.participants = new Map();
+                this.isGuest = false;
                 
-                this.checkBrowserSupport();
-                this.initializeEventListeners();
-                this.initializeSocketEvents();
+                this.checkIfGuest();
+                this.initializeEvents();
+                this.initializeSocket();
             }
             
-            checkBrowserSupport() {
-                // Check HTTPS requirement
-                if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-                    this.updateStatus('Camera requires HTTPS. Please use https:// or localhost', 'error');
-                    return;
-                }
-                
-                // Check browser support
-                if (!navigator.mediaDevices) {
-                    this.updateStatus('Camera not supported in this browser', 'error');
-                    return;
-                }
-                
-                // Log available devices for debugging
-                if (navigator.mediaDevices.enumerateDevices) {
-                    navigator.mediaDevices.enumerateDevices()
-                        .then(devices => {
-                            const videoDevices = devices.filter(device => device.kind === 'videoinput');
-                            console.log('Available video devices:', videoDevices.length);
-                            if (videoDevices.length === 0) {
-                                this.updateStatus('No camera found on this device', 'error');
-                            }
-                        })
-                        .catch(err => console.warn('Could not enumerate devices:', err));
+            checkIfGuest() {
+                const urlParams = new URLSearchParams(window.location.search);
+                this.isGuest = urlParams.get('join') === 'true';
+                this.updateUI();
+            }
+            
+            updateUI() {
+                if (this.isGuest) {
+                    // Update UI for guest mode
+                    document.querySelector('h1').textContent = '🎤 Join Live Stream';
+                    document.getElementById('startBtn').textContent = 'Join Stream';
+                    document.querySelector('.stream-box p').textContent = 'Click "Join Stream" to go live with the host';
+                } else {
+                    // Update UI for host mode
+                    document.querySelector('h1').textContent = '📹 Start Your Stream';
+                    document.getElementById('startBtn').textContent = 'Start Stream';
+                    document.querySelector('.stream-box p').textContent = 'Click "Start Stream" to go live and let others join';
                 }
             }
             
-            initializeEventListeners() {
-                // Use both click and touchend for better mobile support
-                document.getElementById('joinBtn').addEventListener('click', (e) => {
-                    e.preventDefault();
-                    this.joinConference();
-                });
-                document.getElementById('leaveBtn').addEventListener('click', (e) => {
-                    e.preventDefault();
-                    this.leaveConference();
-                });
-                document.getElementById('muteBtn').addEventListener('click', (e) => {
-                    e.preventDefault();
-                    this.toggleMute();
-                });
-                document.getElementById('videoBtn').addEventListener('click', (e) => {
-                    e.preventDefault();
-                    this.toggleVideo();
-                });
-                
-                // Add visual feedback for mobile touch
-                document.querySelectorAll('.control-btn').forEach(btn => {
-                    btn.addEventListener('touchstart', () => {
-                        btn.style.transform = 'scale(0.95)';
-                    });
-                    btn.addEventListener('touchend', () => {
-                        btn.style.transform = 'scale(1)';
-                    });
-                });
+            initializeEvents() {
+                document.getElementById('startBtn').onclick = () => this.startStream();
+                document.getElementById('stopBtn').onclick = () => this.stopStream();
+                document.getElementById('muteBtn').onclick = () => this.toggleMute();
+                document.getElementById('videoBtn').onclick = () => this.toggleVideo();
             }
             
-            initializeSocketEvents() {
+            initializeSocket() {
                 this.socket.on('connect', () => {
-                    this.updateStatus('Connected', 'success');
+                    console.log('✅ Connected to server as:', this.socket.id);
                 });
                 
                 this.socket.on('disconnect', () => {
-                    this.updateStatus('Disconnected', 'error');
-                    this.resetConference();
-                });
-                
-                this.socket.on('conference-joined', (data) => {
-                    this.handleConferenceJoined(data);
-                });
-                
-                this.socket.on('participant-joined', (data) => {
-                    this.handleParticipantJoined(data);
-                });
-                
-                this.socket.on('participant-left', (data) => {
-                    this.handleParticipantLeft(data);
-                });
-                
-                this.socket.on('participant-started-streaming', (data) => {
-                    this.handleParticipantStartedStreaming(data);
-                });
-                
-                this.socket.on('participant-stopped-streaming', (data) => {
-                    this.handleParticipantStoppedStreaming(data);
-                });
-                
-                // WebRTC signaling events
-                this.socket.on('webrtc-offer', (data) => {
-                    this.handleWebRTCOffer(data);
-                });
-                
-                this.socket.on('webrtc-answer', (data) => {
-                    this.handleWebRTCAnswer(data);
-                });
-                
-                this.socket.on('webrtc-ice-candidate', (data) => {
-                    this.handleICECandidate(data);
-                });
-                
-                this.socket.on('participant-count', (count) => {
-                    this.updateParticipantCount(count);
-                });
-                
-                this.socket.on('participants-list', (participants) => {
-                    console.log('Received participants list:', participants);
-                    this.handleParticipantsList(participants);
-                });
-                
-                this.socket.on('transport-created', (data) => {
-                    console.log('Transport created:', data);
-                    this.handleTransportCreated(data);
-                });
-                
-                this.socket.on('producer-created', (data) => {
-                    console.log('Producer created:', data);
-                    this.updateStatus('Sharing video with others', 'success');
-                });
-                
-                this.socket.on('consumer-created', (data) => {
-                    console.log('Consumer created:', data);
-                    this.handleConsumerCreated(data);
-                });
-                
-                this.socket.on('new-producer', (data) => {
-                    console.log('New producer available:', data);
-                    this.handleNewProducer(data);
-                });
-                
-                this.socket.on('router-capabilities', (data) => {
-                    console.log('Received router capabilities:', data);
-                    this.routerCapabilities = data.rtpCapabilities;
+                    console.log('❌ Disconnected from server');
                 });
                 
                 this.socket.on('error', (error) => {
-                    console.error('Socket error:', error);
-                    this.updateStatus('Error: ' + error.message, 'error');
+                    console.error('❌ Socket error:', error);
+                });
+                
+                this.socket.on('guest-joined', (data) => {
+                    console.log('🎤 Guest joined:', data.guest);
+                    this.addGuest(data.guest);
+                    this.updateStatus(data.guest.name + ' joined the stream', 'info');
+                });
+                
+                this.socket.on('guest-left', (data) => {
+                    console.log('👋 Guest left:', data.guestId);
+                    this.removeGuest(data.guestId);
+                    this.updateStatus('Guest left the stream', 'info');
+                });
+                
+                this.socket.on('viewer-joined', (data) => {
+                    console.log('👀 Someone started watching:', data.viewerName);
+                    this.updateStatus('Someone is now watching', 'info');
+                });
+                
+                this.socket.on('stream-ended', () => {
+                    console.log('📺 Stream ended by host');
+                    this.updateStatus('Stream ended', 'info');
+                    if (this.isGuest) {
+                        setTimeout(() => {
+                            window.location.href = '/watch';
+                        }, 2000);
+                    }
                 });
             }
             
-            async joinConference() {
+            async startStream() {
                 try {
-                    this.updateStatus('Requesting camera access...', 'info');
+                    this.updateStatus('Checking stream status...', 'info');
                     
-                    // Check if getUserMedia is supported
-                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                        throw new Error('Camera not supported on this browser');
-                    }
-                    
-                    // Mobile-friendly camera constraints
-                    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-                    
-                    const constraints = {
-                        video: {
-                            width: { ideal: isMobile ? 480 : 640, max: 1280 },
-                            height: { ideal: isMobile ? 360 : 480, max: 720 },
-                            facingMode: 'user', // Front camera on mobile
-                            frameRate: { ideal: isMobile ? 15 : 30, max: 30 } // Lower framerate for mobile
-                        },
-                        audio: {
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true
-                        }
-                    };
-                    
-                    // Try to get media with full constraints first
-                    try {
-                        this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
-                    } catch (err) {
-                        console.warn('Failed with full constraints, trying video only:', err);
-                        // Fallback to video only if audio fails
-                        try {
-                            this.localStream = await navigator.mediaDevices.getUserMedia({
-                                video: constraints.video
-                            });
-                            this.updateStatus('Camera access granted (audio unavailable)', 'info');
-                        } catch (videoErr) {
-                            console.warn('Failed with video only, trying basic constraints:', videoErr);
-                            // Final fallback with basic constraints
-                            this.localStream = await navigator.mediaDevices.getUserMedia({
-                                video: true,
-                                audio: false
-                            });
-                            this.updateStatus('Basic camera access granted', 'info');
-                        }
-                    }
-                    
-                    if (!this.localStream) {
-                        throw new Error('Failed to access camera');
-                    }
-                    
-                    this.createLocalVideoParticipant();
-                    this.hideEmptyState();
-                    this.updateStatus('Joining conference...', 'info');
-                    
-                    this.socket.emit('join-room', { 
-                        roomId: 'conference-room',
-                        role: 'participant',
-                        displayName: 'User-' + Math.random().toString(36).substr(2, 6)
+                    // First check if someone is already hosting
+                    const streamStatus = await new Promise((resolve) => {
+                        this.socket.emit('get-stream-status', (status) => {
+                            resolve(status);
+                        });
                     });
                     
-                } catch (error) {
-                    console.error('Join conference error:', error);
-                    let errorMessage = 'Camera access failed';
+                    console.log('📊 Current stream status:', streamStatus);
                     
-                    if (error.name === 'NotAllowedError') {
-                        errorMessage = 'Camera permission denied. Please allow camera access and try again.';
-                    } else if (error.name === 'NotFoundError') {
-                        errorMessage = 'No camera found on this device.';
-                    } else if (error.name === 'NotSupportedError') {
-                        errorMessage = 'Camera not supported on this browser.';
-                    } else if (error.name === 'NotReadableError') {
-                        errorMessage = 'Camera is being used by another application.';
-                    } else if (error.message) {
-                        errorMessage = error.message;
+                    // If someone is already hosting and this isn't a forced guest join, become a guest
+                    if (streamStatus.isLive && !this.isGuest) {
+                        console.log('🎤 Stream already live, joining as guest instead');
+                        this.isGuest = true;
+                        this.updateUI();
                     }
                     
-                    this.updateStatus(errorMessage, 'error');
-                    this.showCameraPermissionHelp();
+                    this.updateStatus('Starting camera...', 'info');
+                    
+                    this.localStream = await navigator.mediaDevices.getUserMedia({
+                        video: { width: 640, height: 480 },
+                        audio: { echoCancellation: true, noiseSuppression: true }
+                    });
+                    
+                    const preview = document.getElementById('videoPreview');
+                    preview.innerHTML = '<video class="video-element" autoplay muted playsinline></video>';
+                    preview.querySelector('video').srcObject = this.localStream;
+                    
+                    if (this.isGuest) {
+                        // Join as guest
+                        const guestName = 'Guest-' + Math.random().toString(36).substr(2, 6);
+                        console.log('🎤 Joining as guest with name:', guestName);
+                        this.socket.emit('join-stream-as-guest', {
+                            guestName: guestName
+                        });
+                    } else {
+                        // Start hosting the stream
+                        const hostName = 'Host-' + Math.random().toString(36).substr(2, 6);
+                        console.log('🎥 Starting to host with name:', hostName);
+                        this.socket.emit('start-hosting', {
+                            hostName: hostName
+                        });
+                    }
+                    
+                    this.isStreaming = true;
+                    this.toggleControls(true);
+                    
+                    if (this.isGuest) {
+                        this.updateStatus('🎤 You joined the stream!', 'success');
+                    } else {
+                        this.showStreamInfo();
+                        this.updateStatus('🔴 You are live!', 'success');
+                    }
+                    
+                } catch (error) {
+                    this.updateStatus('Camera access failed: ' + error.message, 'error');
                 }
             }
             
-            async leaveConference() {
-                try {
-                    if (this.localStream) {
-                        this.localStream.getTracks().forEach(track => track.stop());
-                        this.localStream = null;
-                    }
-                    
-                    if (this.localVideo) {
-                        this.localVideo.remove();
-                        this.localVideo = null;
-                    }
-                    
-                    // Close all peer connections
-                    this.peerConnections.forEach((peerConnection, participantId) => {
-                        peerConnection.close();
-                    });
-                    this.peerConnections.clear();
-                    
-                    this.participants.clear();
-                    this.socket.emit('leave-room');
-                    this.resetConference();
-                    this.showEmptyState();
-                    this.updateStatus('Left conference', 'info');
-                    
-                } catch (error) {
-                    this.updateStatus('Error leaving', 'error');
+            stopStream() {
+                if (this.localStream) {
+                    this.localStream.getTracks().forEach(track => track.stop());
+                    this.localStream = null;
                 }
+                
+                if (this.isGuest) {
+                    this.socket.emit('leave-room');
+                } else {
+                    this.socket.emit('stop-hosting');
+                }
+                
+                document.getElementById('videoPreview').innerHTML = '<div>Stream ended</div>';
+                this.isStreaming = false;
+                this.toggleControls(false);
+                
+                if (this.isGuest) {
+                    this.updateStatus('Left the stream', 'info');
+                } else {
+                    this.hideStreamInfo();
+                    this.updateStatus('Stream stopped', 'info');
+                }
+                
+                // Clear all guests
+                document.getElementById('participants').innerHTML = '';
+                this.participants.clear();
             }
             
             toggleMute() {
@@ -1364,11 +1173,9 @@ export class AppService {
                     audioTrack.enabled = !audioTrack.enabled;
                     this.isMuted = !audioTrack.enabled;
                     
-                    const muteBtn = document.getElementById('muteBtn');
-                    muteBtn.textContent = this.isMuted ? '🔇 Muted' : '🎤 Mic';
-                    muteBtn.classList.toggle('active', !this.isMuted);
-                    
-                    this.updateLocalVideoIndicator();
+                    const btn = document.getElementById('muteBtn');
+                    btn.textContent = this.isMuted ? '🔇 Muted' : '🎤 Mic';
+                    btn.style.background = this.isMuted ? '#dc3545' : '#6c757d';
                 }
             }
             
@@ -1380,574 +1187,56 @@ export class AppService {
                     videoTrack.enabled = !videoTrack.enabled;
                     this.isVideoEnabled = videoTrack.enabled;
                     
-                    const videoBtn = document.getElementById('videoBtn');
-                    videoBtn.textContent = this.isVideoEnabled ? '📷 Camera' : '📷 Off';
-                    videoBtn.classList.toggle('active', this.isVideoEnabled);
-                    
-                    this.updateLocalVideoDisplay();
+                    const btn = document.getElementById('videoBtn');
+                    btn.textContent = this.isVideoEnabled ? '📷 Camera' : '📷 Off';
+                    btn.style.background = this.isVideoEnabled ? '#6c757d' : '#dc3545';
                 }
             }
             
-            createLocalVideoParticipant() {
-                const videoGrid = document.getElementById('videoGrid');
+            addGuest(guest) {
+                const participantsDiv = document.getElementById('participants');
                 
-                const participantDiv = document.createElement('div');
-                participantDiv.className = 'video-participant local';
-                participantDiv.id = 'local-participant';
+                const guestDiv = document.createElement('div');
+                guestDiv.className = 'participant';
+                guestDiv.id = 'guest-' + guest.id;
+                guestDiv.innerHTML = '<div>📹 ' + guest.name + '</div><div class="participant-name">' + guest.name + '</div>';
                 
-                const video = document.createElement('video');
-                video.className = 'participant-video';
-                video.autoplay = true;
-                video.muted = true;
-                video.playsInline = true;
-                video.controls = false;
-                video.srcObject = this.localStream;
-                
-                // Handle video load errors
-                video.addEventListener('loadedmetadata', () => {
-                    console.log('Local video loaded successfully');
-                    // Force video to play on iOS Safari
-                    video.play().catch(e => console.warn('Auto-play failed:', e));
-                });
-                video.addEventListener('error', (e) => {
-                    console.error('Video error:', e);
-                    this.updateStatus('Video display error', 'error');
-                });
-                
-                // iOS Safari specific: sometimes needs manual play trigger
-                setTimeout(() => {
-                    if (video.paused) {
-                        video.play().catch(e => console.warn('Delayed play failed:', e));
-                    }
-                }, 100);
-                
-                const info = document.createElement('div');
-                info.className = 'participant-info';
-                info.innerHTML = \`
-                    <div class="status-indicator"></div>
-                    <span>You</span>
-                \`;
-                
-                participantDiv.appendChild(video);
-                participantDiv.appendChild(info);
-                videoGrid.appendChild(participantDiv);
-                
-                this.localVideo = participantDiv;
-                this.updateLocalVideoIndicator();
+                participantsDiv.appendChild(guestDiv);
+                this.participants.set(guest.id, guestDiv);
             }
             
-            updateLocalVideoDisplay() {
-                if (!this.localVideo) return;
-                
-                const video = this.localVideo.querySelector('.participant-video');
-                
-                if (this.isVideoEnabled) {
-                    video.style.display = 'block';
-                } else {
-                    video.style.display = 'none';
+            removeGuest(guestId) {
+                const element = this.participants.get(guestId);
+                if (element) {
+                    element.remove();
+                    this.participants.delete(guestId);
                 }
             }
             
-            updateLocalVideoIndicator() {
-                if (!this.localVideo) return;
-                
-                const indicator = this.localVideo.querySelector('.status-indicator');
-                if (indicator) {
-                    indicator.classList.toggle('muted', this.isMuted);
-                }
+            showStreamInfo() {
+                const streamInfo = document.getElementById('streamInfo');
+                streamInfo.classList.remove('hidden');
             }
             
-            handleConferenceJoined(data) {
-                this.isJoined = true;
-                this.myParticipantId = data.participantId;
-                this.toggleControls(true);
-                this.updateStatus('Joined conference', 'success');
-                
-                console.log('Conference joined successfully:', data);
-                this.socket.emit('get-participants');
-                
-                // Start producing our media immediately after joining
-                setTimeout(() => {
-                    this.startProducing();
-                }, 1000);
+            hideStreamInfo() {
+                document.getElementById('streamInfo').classList.add('hidden');
             }
             
-            handleParticipantJoined(data) {
-                const { participant } = data;
-                console.log('Participant joined:', participant);
-                this.updateStatus(\`\${participant.displayName} joined\`, 'info');
-                
-                // Request to consume their media if they're producing
-                if (participant.producers && participant.producers.length > 0) {
-                    console.log('New participant has producers, requesting consumption');
-                    this.requestConsumption(participant);
-                }
-            }
-            
-            handleParticipantLeft(data) {
-                const { participantId, displayName } = data;
-                
-                const participantElement = document.getElementById(\`participant-\${participantId}\`);
-                if (participantElement) {
-                    participantElement.remove();
-                }
-                
-                this.participants.delete(participantId);
-                this.updateStatus(\`\${displayName} left\`, 'info');
-            }
-            
-            async handleParticipantStartedStreaming(data) {
-                const { participant } = data;
-                console.log('Participant started streaming:', participant);
-                
-                // Create video element for this participant if not exists
-                if (!this.participants.has(participant.id)) {
-                    this.createRemoteVideoParticipant(participant);
-                }
-                
-                // Create WebRTC peer connection to get their video
-                await this.createPeerConnection(participant.id);
-                
-                this.updateStatus(participant.displayName + ' started sharing video', 'info');
-            }
-            
-            handleParticipantStoppedStreaming(data) {
-                const { participantId } = data;
-                
-                const participantElement = document.getElementById(\`participant-\${participantId}\`);
-                if (participantElement) {
-                    participantElement.remove();
-                }
-                
-                this.participants.delete(participantId);
-            }
-            
-            createRemoteVideoParticipant(participant) {
-                const videoGrid = document.getElementById('videoGrid');
-                
-                const participantDiv = document.createElement('div');
-                participantDiv.className = 'video-participant';
-                participantDiv.id = 'participant-' + participant.id;
-                
-                // For now, create a placeholder since we're simulating the remote video
-                // In a real implementation, this would be a video element with the remote stream
-                const placeholder = document.createElement('div');
-                placeholder.className = 'no-video-placeholder';
-                placeholder.innerHTML = \`
-                    <div class="no-video-icon">👤</div>
-                    <div>\${participant.displayName}</div>
-                    <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.5rem;">
-                        Video connecting...
-                    </div>
-                \`;
-                
-                // Simulate receiving video after a delay
-                setTimeout(() => {
-                    placeholder.innerHTML = \`
-                        <div class="no-video-icon">📹</div>
-                        <div>\${participant.displayName}</div>
-                        <div style="font-size: 0.8rem; opacity: 0.7; margin-top: 0.5rem;">
-                            Video stream active
-                        </div>
-                    \`;
-                    participantDiv.style.background = '#1a1a1a';
-                }, 2000);
-                
-                const info = document.createElement('div');
-                info.className = 'participant-info';
-                info.innerHTML = \`
-                    <div class="status-indicator"></div>
-                    <span>\${participant.displayName}</span>
-                \`;
-                
-                participantDiv.appendChild(placeholder);
-                participantDiv.appendChild(info);
-                videoGrid.appendChild(participantDiv);
-                
-                this.participants.set(participant.id, {
-                    element: participantDiv,
-                    participant: participant
-                });
-            }
-            
-            updateParticipantCount(count) {
-                const participantCountEl = document.getElementById('participantCount');
-                participantCountEl.textContent = \`\${count} participant\${count !== 1 ? 's' : ''}\`;
-            }
-            
-            hideEmptyState() {
-                const emptyState = document.getElementById('emptyState');
-                if (emptyState) emptyState.style.display = 'none';
-            }
-            
-            showEmptyState() {
-                const videoGrid = document.getElementById('videoGrid');
-                videoGrid.innerHTML = \`
-                    <div class="empty-state" id="emptyState">
-                        <h2>Ready to start</h2>
-                        <p>Click "Join Conference" to start your video call</p>
-                    </div>
-                \`;
-            }
-            
-            showCameraPermissionHelp() {
-                const videoGrid = document.getElementById('videoGrid');
-                videoGrid.innerHTML = \`
-                    <div class="empty-state" id="emptyState">
-                        <h2>📷 Camera Access Needed</h2>
-                        <p style="margin-bottom: 1rem;">To join the video conference, please:</p>
-                        <div style="text-align: left; max-width: 400px; margin: 0 auto;">
-                            <p style="margin-bottom: 0.5rem;">1. Allow camera access when prompted</p>
-                            <p style="margin-bottom: 0.5rem;">2. Use HTTPS (not HTTP) if not on localhost</p>
-                            <p style="margin-bottom: 0.5rem;">3. Check your browser settings for camera permissions</p>
-                            <p style="margin-bottom: 0.5rem;">4. Make sure no other app is using your camera</p>
-                            <p style="margin-bottom: 1rem;">5. Try refreshing the page</p>
-                        </div>
-                        <button onclick="location.reload()" style="padding: 0.5rem 1rem; border: 1px solid #007bff; background: #007bff; color: white; border-radius: 4px; cursor: pointer;">
-                            Refresh Page
-                        </button>
-                    </div>
-                \`;
-            }
-
-            async startProducing() {
-                if (!this.localStream || !this.isJoined) {
-                    console.log('Cannot start producing: no stream or not joined');
-                    return;
-                }
-
-                try {
-                    console.log('Starting media production...');
-                    
-                    // Notify server that we're starting to stream
-                    this.socket.emit('start-streaming', {
-                        participantId: this.myParticipantId
-                    });
-                    
-                    this.updateStatus('Sharing video with others', 'success');
-                    
-                } catch (error) {
-                    console.error('Error starting production:', error);
-                    this.updateStatus('Failed to start video sharing', 'error');
-                }
-            }
-
-            async requestConsumption(participant, producer = null) {
-                if (!this.isJoined) {
-                    console.log('Cannot request consumption: not joined');
-                    return;
-                }
-
-                try {
-                    console.log('Requesting consumption for participant:', participant.id);
-                    
-                    // Create consumer transport if we don't have one
-                    this.socket.emit('create-transport', { type: 'consumer' });
-                    
-                    // If we have specific producer info, request consumption
-                    if (producer) {
-                        console.log('Requesting consumption of producer:', producer.id);
-                        this.socket.emit('request-consume', {
-                            participantId: participant.id,
-                            producerId: producer.id
-                        });
-                    }
-                    
-                } catch (error) {
-                    console.error('Error requesting consumption:', error);
-                }
-            }
-
-            handleParticipantsList(participants) {
-                console.log('Processing participants list:', participants);
-                
-                participants.forEach(participant => {
-                    if (participant.id !== this.myParticipantId) {
-                        // Create video element for each remote participant
-                        if (!this.participants.has(participant.id)) {
-                            console.log('Creating remote participant:', participant.displayName);
-                            this.createRemoteVideoParticipant(participant);
-                        }
-                    }
-                });
-            }
-
-            handleTransportCreated(data) {
-                const { transportInfo, type } = data;
-              
-                
-                if (type === 'producer' && this.localStream) {
-                    // Connect the transport and start producing
-                    this.socket.emit('connect-transport', {
-                        transportId: transportInfo.id,
-                        dtlsParameters: {} // In real implementation, this would have actual DTLS params
-                    });
-                    
-                    // Start producing video and audio
-                    const videoTrack = this.localStream.getVideoTracks()[0];
-                    const audioTrack = this.localStream.getAudioTracks()[0];
-                    
-                    if (videoTrack) {
-                        console.log('Starting video production');
-                        this.socket.emit('produce', {
-                            transportId: transportInfo.id,
-                            kind: 'video',
-                            rtpParameters: {} // In real implementation, this would have actual RTP params
-                        });
-                    }
-                    
-                    if (audioTrack) {
-                        console.log('Starting audio production');
-                        this.socket.emit('produce', {
-                            transportId: transportInfo.id,
-                            kind: 'audio',
-                            rtpParameters: {} // In real implementation, this would have actual RTP params
-                        });
-                    }
-                } else if (type === 'consumer') {
-                    // Connect consumer transport
-                    this.socket.emit('connect-transport', {
-                        transportId: transportInfo.id,
-                        dtlsParameters: {} // In real implementation, this would have actual DTLS params
-                    });
-                }
-            }
-
-            handleConsumerCreated(data) {
-                const { consumer } = data;
-                console.log('Consumer created for remote stream:', consumer);
-                
-                // In a real implementation, this would set up the actual media stream
-                // For now, we'll simulate receiving the remote video
-                this.updateStatus('Connected to remote participant', 'success');
-            }
-
-            handleNewProducer(data) {
-                const { producer, streamerId } = data;
-                console.log('New producer from participant:', streamerId, producer);
-                
-                // Request to consume this new producer
-                if (this.routerCapabilities) {
-                    this.socket.emit('consume', {
-                        transportId: 'consumer-transport-id', // Would be actual transport ID
-                        producerId: producer.id,
-                        rtpCapabilities: this.routerCapabilities
-                    });
-                }
-            }
-            
-            async createPeerConnection(participantId) {
-                try {
-                    // Create RTCPeerConnection
-                    const peerConnection = new RTCPeerConnection({
-                        iceServers: [
-                            { urls: 'stun:stun.l.google.com:19302' },
-                            { urls: 'stun:stun1.l.google.com:19302' }
-                        ]
-                    });
-
-                    this.peerConnections.set(participantId, peerConnection);
-
-                    // Add local stream to peer connection
-                    if (this.localStream) {
-                        this.localStream.getTracks().forEach(track => {
-                            peerConnection.addTrack(track, this.localStream);
-                        });
-                    }
-
-                    // Handle incoming remote stream
-                    peerConnection.ontrack = (event) => {
-                        console.log('Received remote stream from:', participantId);
-                        const remoteStream = event.streams[0];
-                        this.displayRemoteVideo(participantId, remoteStream);
-                    };
-
-                    // Handle ICE candidates
-                    peerConnection.onicecandidate = (event) => {
-                        if (event.candidate) {
-                            this.socket.emit('webrtc-ice-candidate', {
-                                targetParticipant: participantId,
-                                candidate: event.candidate
-                            });
-                        }
-                    };
-
-                    // Create and send offer
-                    const offer = await peerConnection.createOffer();
-                    await peerConnection.setLocalDescription(offer);
-
-                    this.socket.emit('webrtc-offer', {
-                        targetParticipant: participantId,
-                        offer: offer
-                    });
-
-                    console.log('Created peer connection and sent offer to:', participantId);
-
-                } catch (error) {
-                    console.error('Error creating peer connection:', error);
-                }
-            }
-
-            async handleWebRTCOffer(data) {
-                const { fromParticipant, offer } = data;
-                console.log('Received WebRTC offer from:', fromParticipant);
-
-                try {
-                    const peerConnection = new RTCPeerConnection({
-                        iceServers: [
-                            { urls: 'stun:stun.l.google.com:19302' },
-                            { urls: 'stun:stun1.l.google.com:19302' }
-                        ]
-                    });
-
-                    this.peerConnections.set(fromParticipant, peerConnection);
-
-                    // Add local stream
-                    if (this.localStream) {
-                        this.localStream.getTracks().forEach(track => {
-                            peerConnection.addTrack(track, this.localStream);
-                        });
-                    }
-
-                    // Handle incoming remote stream
-                    peerConnection.ontrack = (event) => {
-                        console.log('Received remote stream from:', fromParticipant);
-                        const remoteStream = event.streams[0];
-                        this.displayRemoteVideo(fromParticipant, remoteStream);
-                    };
-
-                    // Handle ICE candidates
-                    peerConnection.onicecandidate = (event) => {
-                        if (event.candidate) {
-                            this.socket.emit('webrtc-ice-candidate', {
-                                targetParticipant: fromParticipant,
-                                candidate: event.candidate
-                            });
-                        }
-                    };
-
-                    // Set remote description and create answer
-                    await peerConnection.setRemoteDescription(offer);
-                    const answer = await peerConnection.createAnswer();
-                    await peerConnection.setLocalDescription(answer);
-
-                    this.socket.emit('webrtc-answer', {
-                        targetParticipant: fromParticipant,
-                        answer: answer
-                    });
-
-                } catch (error) {
-                    console.error('Error handling WebRTC offer:', error);
-                }
-            }
-
-            async handleWebRTCAnswer(data) {
-                const { fromParticipant, answer } = data;
-                console.log('Received WebRTC answer from:', fromParticipant);
-
-                try {
-                    const peerConnection = this.peerConnections.get(fromParticipant);
-                    if (peerConnection) {
-                        await peerConnection.setRemoteDescription(answer);
-                    }
-                } catch (error) {
-                    console.error('Error handling WebRTC answer:', error);
-                }
-            }
-
-            async handleICECandidate(data) {
-                const { fromParticipant, candidate } = data;
-                console.log('Received ICE candidate from:', fromParticipant);
-
-                try {
-                    const peerConnection = this.peerConnections.get(fromParticipant);
-                    if (peerConnection) {
-                        await peerConnection.addIceCandidate(candidate);
-                    }
-                } catch (error) {
-                    console.error('Error handling ICE candidate:', error);
-                }
-            }
-
-            displayRemoteVideo(participantId, remoteStream) {
-                console.log('Displaying remote video for participant:', participantId);
-                
-                const participantData = this.participants.get(participantId);
-                if (!participantData) {
-                    console.warn('Participant element not found for:', participantId);
-                    return;
-                }
-
-                const participantElement = participantData.element;
-                
-                // Remove placeholder and add video element
-                const placeholder = participantElement.querySelector('.no-video-placeholder');
-                if (placeholder) {
-                    placeholder.remove();
-                }
-
-                // Create video element for remote stream
-                let videoElement = participantElement.querySelector('.participant-video');
-                if (!videoElement) {
-                    videoElement = document.createElement('video');
-                    videoElement.className = 'participant-video';
-                    videoElement.autoplay = true;
-                    videoElement.playsInline = true;
-                    videoElement.controls = false;
-                    participantElement.appendChild(videoElement);
-                }
-
-                videoElement.srcObject = remoteStream;
-                
-                // Update participant data
-                participantData.stream = remoteStream;
-                this.participants.set(participantId, participantData);
-
-                this.updateStatus('Video connection established', 'success');
-            }
-            
-            resetConference() {
-                this.isJoined = false;
-                this.toggleControls(false);
-                this.participants.clear();
-                this.updateParticipantCount(0);
-            }
-            
-            toggleControls(isJoined) {
-                const joinBtn = document.getElementById('joinBtn');
-                const leaveBtn = document.getElementById('leaveBtn');
-                
-                if (isJoined) {
-                    joinBtn.classList.add('hidden');
-                    leaveBtn.classList.remove('hidden');
-                } else {
-                    joinBtn.classList.remove('hidden');
-                    leaveBtn.classList.add('hidden');
-                }
+            toggleControls(isStreaming) {
+                document.getElementById('startBtn').classList.toggle('hidden', isStreaming);
+                document.getElementById('stopBtn').classList.toggle('hidden', !isStreaming);
             }
             
             updateStatus(message, type = 'info') {
-                const statusEl = document.getElementById('status');
-                statusEl.textContent = message;
-                statusEl.className = 'status ' + type;
-                statusEl.classList.remove('hidden');
-                
-                // Log status for debugging
-                
-                
-                // Keep error messages visible longer
-                const hideTimeout = type === 'error' ? 8000 : 3000;
-                setTimeout(() => {
-                    statusEl.classList.add('hidden');
-                }, hideTimeout);
+                const status = document.getElementById('status');
+                status.textContent = message;
+                status.className = 'status ' + type;
             }
         }
         
-        document.addEventListener('DOMContentLoaded', () => {
-            new ConferenceClient();
-        });
+        new StreamHost();
     </script>
 </body>
 </html>`;
-    }
+  }
 } 
