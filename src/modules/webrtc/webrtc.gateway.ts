@@ -113,7 +113,7 @@ export class WebRtcGateway
         }
       }
 
-      // Check if room already has a streamer
+      // Check if room already has a streamer (only for streaming rooms, not conference rooms)
       if (role === UserRole.STREAMER && this.roomService.hasStreamer(roomId)) {
         client.emit(SocketEvents.ERROR, {
           message: 'Room already has an active streamer',
@@ -159,7 +159,7 @@ export class WebRtcGateway
       const roomState = await this.roomService.getRoomState(roomId);
       client.emit('room-state', roomState);
 
-      // If user is a viewer and there's an active stream, set up consumption
+      // Set up media consumption for viewers and conference participants
       if (role === UserRole.VIEWER) {
         const activeProducers = this.mediaSoupService.getActiveProducers(roomId);
         if (activeProducers.length > 0) {
@@ -169,6 +169,17 @@ export class WebRtcGateway
         } else {
           client.emit(SocketEvents.STREAM_ENDED);
         }
+      } else if (role === UserRole.PARTICIPANT) {
+        // For conference participants, send conference-specific join event
+        client.emit('conference-joined', {
+          participantId: userSession.id,
+          roomId,
+          participants: this.roomService.getActiveParticipants(roomId)
+        });
+        
+        // Send router capabilities for both producing and consuming
+        const rtpCapabilities = this.mediaSoupService.getRouterCapabilities(roomId);
+        client.emit('router-capabilities', { rtpCapabilities });
       }
 
       // Broadcast user joined to other room members
@@ -177,8 +188,14 @@ export class WebRtcGateway
         roomId,
       });
 
-      // Update viewer count
-      this.broadcastViewerCount(roomId);
+      // Update viewer/participant count based on room type
+      const remainingParticipants = this.roomService.getActiveParticipants(roomId);
+      if (remainingParticipants.some(p => p.role === UserRole.PARTICIPANT)) {
+        this.broadcastParticipantCount(roomId);
+        this.broadcastParticipantsList(roomId);
+      } else {
+        this.broadcastViewerCount(roomId);
+      }
 
       this.logger.log(`✅ User ${client.id} successfully joined room ${roomId}`);
 
@@ -290,8 +307,8 @@ export class WebRtcGateway
       const roomId = client.data.roomId;
       const role = client.data.role;
 
-      if (!roomId || role !== UserRole.STREAMER) {
-        throw new Error('Only streamers can produce media');
+      if (!roomId || (role !== UserRole.STREAMER && role !== UserRole.PARTICIPANT)) {
+        throw new Error('Only streamers and participants can produce media');
       }
 
       const { transportId, kind, rtpParameters } = data;
@@ -317,17 +334,26 @@ export class WebRtcGateway
         producer: producerInfo,
       });
 
-      // Notify viewers about new producer
-      client.to(roomId).emit(SocketEvents.NEW_PRODUCER, {
-        producer: producerInfo,
-        streamerId: client.data.userId,
-      });
+      // Notify other participants/viewers about new producer
+      if (role === UserRole.PARTICIPANT) {
+        // For conference participants, notify others that a participant started streaming
+        client.to(roomId).emit('participant-started-streaming', {
+          participant: userSession,
+          producer: producerInfo,
+        });
+      } else {
+        // For regular streamers, use the existing notification system
+        client.to(roomId).emit(SocketEvents.NEW_PRODUCER, {
+          producer: producerInfo,
+          streamerId: client.data.userId,
+        });
 
-      // Broadcast stream started event
-      this.server.to(roomId).emit(SocketEvents.STREAM_STARTED, {
-        producer: producerInfo,
-        streamer: userSession?.displayName,
-      });
+        // Broadcast stream started event
+        this.server.to(roomId).emit(SocketEvents.STREAM_STARTED, {
+          producer: producerInfo,
+          streamer: userSession?.displayName,
+        });
+      }
 
       this.logger.log(`✅ Producer created: ${producerInfo.id} (${kind})`);
 
@@ -356,8 +382,8 @@ export class WebRtcGateway
       const roomId = client.data.roomId;
       const role = client.data.role;
 
-      if (!roomId || role !== UserRole.VIEWER) {
-        throw new Error('Only viewers can consume media');
+      if (!roomId || (role !== UserRole.VIEWER && role !== UserRole.PARTICIPANT)) {
+        throw new Error('Only viewers and participants can consume media');
       }
 
       const { transportId, producerId, rtpCapabilities } = data;
@@ -446,6 +472,126 @@ export class WebRtcGateway
   }
 
   /**
+   * Handle participant starting to stream (simplified WebRTC)
+   */
+  @SubscribeMessage('start-streaming')
+  async handleStartStreaming(@ConnectedSocket() client: Socket): Promise<void> {
+    try {
+      const roomId = client.data.roomId;
+      const userId = client.data.userId;
+      
+      if (!roomId || !userId) {
+        throw new Error('User not in a room');
+      }
+
+      const userSession = await this.roomService.getUserSession(roomId, userId);
+      if (!userSession) {
+        throw new Error('User session not found');
+      }
+
+      this.logger.log(`📹 User ${userId} started streaming in room ${roomId}`);
+
+      // Notify other participants that this user started streaming
+      client.to(roomId).emit('participant-started-streaming', {
+        participant: userSession
+      });
+
+    } catch (error) {
+      this.logger.error('Error handling start streaming:', error);
+      client.emit(SocketEvents.ERROR, {
+        message: 'Failed to start streaming',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * Handle WebRTC offer
+   */
+  @SubscribeMessage('webrtc-offer')
+  async handleWebRTCOffer(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { targetParticipant: string; offer: any },
+  ): Promise<void> {
+    try {
+      const { targetParticipant, offer } = data;
+      const fromParticipant = client.data.userId;
+      const roomId = client.data.roomId;
+
+      this.logger.debug(`🔄 WebRTC offer from ${fromParticipant} to ${targetParticipant}`);
+
+      // Find target participant's socket
+      const targetSession = await this.roomService.getUserSession(roomId, targetParticipant);
+      if (targetSession) {
+        // Forward offer to target participant
+        client.to(roomId).emit('webrtc-offer', {
+          fromParticipant,
+          offer
+        });
+      }
+
+    } catch (error) {
+      this.logger.error('Error handling WebRTC offer:', error);
+    }
+  }
+
+  /**
+   * Handle WebRTC answer
+   */
+  @SubscribeMessage('webrtc-answer')
+  async handleWebRTCAnswer(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { targetParticipant: string; answer: any },
+  ): Promise<void> {
+    try {
+      const { targetParticipant, answer } = data;
+      const fromParticipant = client.data.userId;
+      const roomId = client.data.roomId;
+
+      this.logger.debug(`🔄 WebRTC answer from ${fromParticipant} to ${targetParticipant}`);
+
+      // Find target participant's socket
+      const targetSession = await this.roomService.getUserSession(roomId, targetParticipant);
+      if (targetSession) {
+        // Forward answer to target participant
+        client.to(roomId).emit('webrtc-answer', {
+          fromParticipant,
+          answer
+        });
+      }
+
+    } catch (error) {
+      this.logger.error('Error handling WebRTC answer:', error);
+    }
+  }
+
+  /**
+   * Handle ICE candidate
+   */
+  @SubscribeMessage('webrtc-ice-candidate')
+  async handleICECandidate(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() data: { targetParticipant: string; candidate: any },
+  ): Promise<void> {
+    try {
+      const { targetParticipant, candidate } = data;
+      const fromParticipant = client.data.userId;
+      const roomId = client.data.roomId;
+
+      this.logger.debug(`🧊 ICE candidate from ${fromParticipant} to ${targetParticipant}`);
+
+      // Find target participant's socket and forward ICE candidate
+      client.to(roomId).emit('webrtc-ice-candidate', {
+        fromParticipant,
+        candidate
+      });
+
+    } catch (error) {
+      this.logger.error('Error handling ICE candidate:', error);
+    }
+  }
+
+  /**
    * Handle user leaving (cleanup)
    */
   private async handleUserLeave(client: Socket): Promise<void> {
@@ -477,10 +623,15 @@ export class WebRtcGateway
           this.mediaSoupService.closeConsumer(consumer.id);
         }
 
-        // If user was a streamer, notify viewers that stream ended
+        // Notify others based on user role
         if (role === UserRole.STREAMER) {
           this.server.to(roomId).emit(SocketEvents.STREAM_ENDED, {
             streamerId: userId,
+          });
+        } else if (role === UserRole.PARTICIPANT) {
+          // Notify others that a participant stopped streaming
+          this.server.to(roomId).emit('participant-stopped-streaming', {
+            participantId: userId,
           });
         }
       }
@@ -510,6 +661,53 @@ export class WebRtcGateway
       this.server.to(roomId).emit('viewer-count', viewerCount);
     } catch (error) {
       this.logger.error('Error broadcasting viewer count:', error);
+    }
+  }
+
+  /**
+   * Broadcast participant count to all conference room members
+   */
+  private async broadcastParticipantCount(roomId: string): Promise<void> {
+    try {
+      const participantCount = this.roomService.getParticipantCount(roomId);
+      this.server.to(roomId).emit('participant-count', participantCount);
+    } catch (error) {
+      this.logger.error('Error broadcasting participant count:', error);
+    }
+  }
+
+  /**
+   * Broadcast participants list to all conference room members
+   */
+  private async broadcastParticipantsList(roomId: string): Promise<void> {
+    try {
+      const participants = this.roomService.getActiveParticipants(roomId);
+      this.server.to(roomId).emit('participants-list', participants);
+    } catch (error) {
+      this.logger.error('Error broadcasting participants list:', error);
+    }
+  }
+
+  /**
+   * Handle request for participants list (conference mode)
+   */
+  @SubscribeMessage('get-participants')
+  async handleGetParticipants(@ConnectedSocket() client: Socket): Promise<void> {
+    try {
+      const roomId = client.data.roomId;
+      if (!roomId) {
+        throw new Error('User not in a room');
+      }
+
+      const participants = this.roomService.getActiveParticipants(roomId);
+      client.emit('participants-list', participants);
+
+    } catch (error) {
+      this.logger.error('Error getting participants:', error);
+      client.emit(SocketEvents.ERROR, {
+        message: 'Failed to get participants',
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
   }
 } 

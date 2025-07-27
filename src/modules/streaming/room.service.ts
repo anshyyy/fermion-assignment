@@ -193,7 +193,7 @@ export class RoomService {
         }
       }
 
-      // Check if room already has a streamer
+      // Check if room already has a streamer (only for streaming rooms, not conference rooms)
       if (userSession.role === UserRole.STREAMER && this.hasStreamer(roomId)) {
         throw new Error('Room already has an active streamer');
       }
@@ -201,7 +201,7 @@ export class RoomService {
       // Add user to room
       roomUserMap.set(userSession.id, userSession);
 
-      // Update room's streamer ID if user is a streamer
+      // Update room's streamer ID if user is a streamer (not for participants in conference mode)
       if (userSession.role === UserRole.STREAMER) {
         await this.updateRoom(roomId, { streamerId: userSession.id });
       }
@@ -327,6 +327,40 @@ export class RoomService {
   }
 
   /**
+   * Get participant count for a conference room (includes all participants, not just viewers)
+   */
+  getParticipantCount(roomId: string): number {
+    const roomUserMap = this.roomUsers.get(roomId);
+    if (!roomUserMap) return 0;
+
+    let participantCount = 0;
+    for (const user of roomUserMap.values()) {
+      if (user.connectionState === ConnectionState.CONNECTED) {
+        participantCount++;
+      }
+    }
+
+    return participantCount;
+  }
+
+  /**
+   * Get all active participants in a conference room
+   */
+  getActiveParticipants(roomId: string): IUserSession[] {
+    const roomUserMap = this.roomUsers.get(roomId);
+    if (!roomUserMap) return [];
+
+    const participants: IUserSession[] = [];
+    for (const user of roomUserMap.values()) {
+      if (user.connectionState === ConnectionState.CONNECTED) {
+        participants.push(user);
+      }
+    }
+
+    return participants;
+  }
+
+  /**
    * Check if room has an active streamer
    */
   hasStreamer(roomId: string): boolean {
@@ -436,18 +470,19 @@ export class RoomService {
     for (const [roomId, roomUserMap] of this.roomUsers) {
       let roomHasActiveUsers = false;
 
-      for (const user of roomUserMap.values()) {
-        if (user.connectionState === ConnectionState.CONNECTED) {
-          totalUsers++;
-          roomHasActiveUsers = true;
+              for (const user of roomUserMap.values()) {
+          if (user.connectionState === ConnectionState.CONNECTED) {
+            totalUsers++;
+            roomHasActiveUsers = true;
 
-          if (user.role === UserRole.VIEWER) {
-            totalViewers++;
-          } else if (user.role === UserRole.STREAMER) {
-            totalStreamers++;
+            if (user.role === UserRole.VIEWER) {
+              totalViewers++;
+            } else if (user.role === UserRole.STREAMER) {
+              totalStreamers++;
+            }
+            // Note: Participants are counted in totalUsers but not categorized separately
           }
         }
-      }
 
       if (roomHasActiveUsers) {
         activeRooms++;

@@ -14,13 +14,13 @@ export class AppController {
   constructor(private readonly appService: AppService) {}
 
   /**
-   * Root endpoint - redirects to streaming page
+   * Root endpoint - redirects to conference page (multi-participant)
    * GET /
    */
   @Get()
   getRoot(@Res() res: Response): void {
-    this.logger.log('Root endpoint accessed, redirecting to /stream');
-    res.redirect('/stream');
+    this.logger.log('Root endpoint accessed, redirecting to /join');
+    res.redirect('/join');
   }
 
   /**
@@ -52,6 +52,20 @@ export class AppController {
   }
 
   /**
+   * Conference room endpoint - serves the multi-participant interface
+   * GET /join
+   * This page allows multiple users to join and stream their cameras simultaneously
+   */
+  @Get('join')
+  getConferencePage(@Res() res: Response): void {
+    this.logger.log('Conference page requested');
+    
+    const conferencePageHtml = this.appService.generateConferencePage();
+    res.setHeader('Content-Type', 'text/html');
+    res.send(conferencePageHtml);
+  }
+
+  /**
    * Health check endpoint
    * GET /health
    */
@@ -80,9 +94,10 @@ export class AppController {
       version: '1.0.0',
       description: 'Real-time video streaming using WebRTC and MediaSoup',
       endpoints: [
-        'GET / - Root (redirects to /stream)',
+        'GET / - Root (redirects to /join)',
         'GET /stream - Broadcaster interface',
-        'GET /watch - Viewer interface',
+        'GET /watch - Viewer interface', 
+        'GET /join - Multi-participant conference room',
         'GET /health - Health check',
         'GET /api/info - API information',
         'WebSocket /socket.io - Real-time communication',

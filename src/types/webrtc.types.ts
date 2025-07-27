@@ -18,6 +18,7 @@ export enum ConnectionState {
 export enum UserRole {
   STREAMER = 'streamer',
   VIEWER = 'viewer',
+  PARTICIPANT = 'participant', // For multi-participant conference rooms
 }
 
 /**
