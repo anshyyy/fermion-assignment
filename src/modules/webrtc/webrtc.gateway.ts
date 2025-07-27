@@ -506,29 +506,21 @@ export class WebRtcGateway
   }
 
   /**
-   * Handle WebRTC offer
+   * Handle WebRTC offer - relay between participants
    */
   @SubscribeMessage('webrtc-offer')
   async handleWebRTCOffer(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { targetParticipant: string; offer: any },
+    @MessageBody() data: { to: string; offer: any },
   ): Promise<void> {
     try {
-      const { targetParticipant, offer } = data;
-      const fromParticipant = client.data.userId;
-      const roomId = client.data.roomId;
-
-      this.logger.debug(`🔄 WebRTC offer from ${fromParticipant} to ${targetParticipant}`);
-
-      // Find target participant's socket
-      const targetSession = await this.roomService.getUserSession(roomId, targetParticipant);
-      if (targetSession) {
-        // Forward offer to target participant
-        client.to(roomId).emit('webrtc-offer', {
-          fromParticipant,
-          offer
-        });
-      }
+      this.logger.debug(`📞 Relaying WebRTC offer from ${client.id} to ${data.to}`);
+      
+      // Relay offer directly to target socket
+      this.server.to(data.to).emit('webrtc-offer', {
+        from: client.id,
+        offer: data.offer
+      });
 
     } catch (error) {
       this.logger.error('Error handling WebRTC offer:', error);
@@ -536,29 +528,21 @@ export class WebRtcGateway
   }
 
   /**
-   * Handle WebRTC answer
+   * Handle WebRTC answer - relay between participants
    */
   @SubscribeMessage('webrtc-answer')
   async handleWebRTCAnswer(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { targetParticipant: string; answer: any },
+    @MessageBody() data: { to: string; answer: any },
   ): Promise<void> {
     try {
-      const { targetParticipant, answer } = data;
-      const fromParticipant = client.data.userId;
-      const roomId = client.data.roomId;
-
-      this.logger.debug(`🔄 WebRTC answer from ${fromParticipant} to ${targetParticipant}`);
-
-      // Find target participant's socket
-      const targetSession = await this.roomService.getUserSession(roomId, targetParticipant);
-      if (targetSession) {
-        // Forward answer to target participant
-        client.to(roomId).emit('webrtc-answer', {
-          fromParticipant,
-          answer
-        });
-      }
+      this.logger.debug(`📞 Relaying WebRTC answer from ${client.id} to ${data.to}`);
+      
+      // Relay answer directly to target socket
+      this.server.to(data.to).emit('webrtc-answer', {
+        from: client.id,
+        answer: data.answer
+      });
 
     } catch (error) {
       this.logger.error('Error handling WebRTC answer:', error);
@@ -566,24 +550,20 @@ export class WebRtcGateway
   }
 
   /**
-   * Handle ICE candidate
+   * Handle ICE candidate - relay between participants
    */
   @SubscribeMessage('webrtc-ice-candidate')
   async handleICECandidate(
     @ConnectedSocket() client: Socket,
-    @MessageBody() data: { targetParticipant: string; candidate: any },
+    @MessageBody() data: { to: string; candidate: any },
   ): Promise<void> {
     try {
-      const { targetParticipant, candidate } = data;
-      const fromParticipant = client.data.userId;
-      const roomId = client.data.roomId;
+      this.logger.debug(`🧊 Relaying ICE candidate from ${client.id} to ${data.to}`);
 
-      this.logger.debug(`🧊 ICE candidate from ${fromParticipant} to ${targetParticipant}`);
-
-      // Find target participant's socket and forward ICE candidate
-      client.to(roomId).emit('webrtc-ice-candidate', {
-        fromParticipant,
-        candidate
+      // Relay ICE candidate directly to target socket
+      this.server.to(data.to).emit('webrtc-ice-candidate', {
+        from: client.id,
+        candidate: data.candidate
       });
 
     } catch (error) {
@@ -681,28 +661,38 @@ export class WebRtcGateway
     }
   }
 
+
+
   /**
-   * Handle request for participants list (conference mode)
+   * Get participants list (for viewers and guests)
    */
   @SubscribeMessage('get-participants')
   async handleGetParticipants(@ConnectedSocket() client: Socket): Promise<void> {
     try {
-      const roomId = client.data.roomId;
-      if (!roomId) {
-        throw new Error('User not in a room');
+      const streamId = 'main-stream';
+      
+      if (client.data.isViewer) {
+        const participants = await this.getCurrentParticipants(streamId);
+        client.emit('participants-update', participants);
+        this.logger.debug(`📋 Sent participant list to viewer: ${participants.length} participants`);
+        
+      } else if (client.data.isGuest) {
+        const participants = await this.getCurrentParticipantsForGuest(streamId);
+        client.emit('participants-list', participants);
+        this.logger.debug(`📋 Sent participant list to guest: ${participants.length} participants`);
+        
+      } else {
+        this.logger.debug(`📋 get-participants request from non-viewer/guest: ${client.id}`);
       }
-
-      const participants = this.roomService.getActiveParticipants(roomId);
-      client.emit('participants-list', participants);
-
+      
     } catch (error) {
       this.logger.error('Error getting participants:', error);
-      client.emit(SocketEvents.ERROR, {
-        message: 'Failed to get participants',
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
     }
   }
+
+
+
+
 
   /**
    * Start hosting the main stream
@@ -720,6 +710,7 @@ export class WebRtcGateway
       client.data.streamId = streamId;
       client.data.hostName = hostName;
       client.data.isHost = true;
+      client.data.role = 'host';
 
       // Join the main stream room
       await client.join(streamId);
@@ -738,6 +729,13 @@ export class WebRtcGateway
       this.broadcastParticipantsUpdate(streamId);
 
       this.logger.log(`🎥 ${hostName} started hosting the main stream`);
+      
+      // Broadcast to all that stream is now live
+      this.server.emit('stream-status-changed', {
+        isLive: true,
+        hostName: hostName,
+        streamId: streamId
+      });
       this.logger.debug(`🔍 Socket ${client.id} data:`, {
         streamId: client.data.streamId,
         hostName: client.data.hostName,
@@ -775,6 +773,13 @@ export class WebRtcGateway
         client.data.isHost = false;
 
         this.logger.log(`🛑 Main stream ended`);
+        
+        // Broadcast to all that stream is now offline
+        this.server.emit('stream-status-changed', {
+          isLive: false,
+          hostName: null,
+          streamId: streamId
+        });
       }
 
     } catch (error) {
@@ -821,6 +826,9 @@ export class WebRtcGateway
       };
 
       this.logger.debug(`📊 Main stream status:`, status);
+      
+      // Also emit as event in case callback doesn't work
+      client.emit('stream-status-response', status);
       
       // Return the status directly (Socket.io will handle the callback)
       return status;
@@ -887,6 +895,11 @@ export class WebRtcGateway
       client.data.streamId = streamId;
       client.data.isGuest = true;
       client.data.guestName = guestName;
+      client.data.role = 'guest';
+
+      // Send current participants to the new guest (so they can see host + other guests)
+      const participants = await this.getCurrentParticipantsForGuest(streamId);
+      client.emit('participants-list', participants);
 
       // Notify host and others that guest joined
       client.to(streamId).emit('guest-joined', {
@@ -920,6 +933,43 @@ export class WebRtcGateway
   }
 
   /**
+   * Request peer connections (for late joiners)
+   */
+  @SubscribeMessage('request-peer-connections')
+  async handleRequestPeerConnections(@ConnectedSocket() client: Socket): Promise<void> {
+    try {
+      const streamId = 'main-stream';
+      this.logger.debug(`🔗 ${client.id} requesting peer connections`);
+      
+      // Get all other participants (host and guests, not viewers)
+      const sockets = await this.server.in(streamId).fetchSockets();
+      const participants = sockets.filter(socket => 
+        socket.id !== client.id && 
+        (socket.data.isHost || socket.data.isGuest)
+      );
+      
+      this.logger.debug(`🔗 Found ${participants.length} participants for peer connections`);
+      
+      // Notify each participant about the new joiner
+      participants.forEach(participantSocket => {
+        this.logger.debug(`🔗 Notifying ${participantSocket.id} about new joiner ${client.id}`);
+        participantSocket.emit('participant-joined', {
+          participant: {
+            id: client.id,
+            isHost: client.data.isHost || false,
+            isGuest: client.data.isGuest || false,
+            hostName: client.data.hostName,
+            guestName: client.data.guestName
+          }
+        });
+      });
+      
+    } catch (error) {
+      this.logger.error('Error handling peer connection request:', error);
+    }
+  }
+
+  /**
    * Get current participants in the stream
    */
   private async getCurrentParticipants(streamId: string): Promise<any[]> {
@@ -946,6 +996,46 @@ export class WebRtcGateway
       return participants;
     } catch (error) {
       this.logger.error('Error getting current participants:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get current participants for guests (includes role info)
+   */
+  private async getCurrentParticipantsForGuest(streamId: string): Promise<any[]> {
+    try {
+      const sockets = await this.server.in(streamId).fetchSockets();
+      const participants: any[] = [];
+      
+      sockets.forEach(socket => {
+        if (socket.data.isHost) {
+          participants.push({
+            id: socket.id,
+            isHost: true,
+            hostName: socket.data.hostName,
+            role: 'host',
+            displayName: socket.data.hostName
+          });
+        } else if (socket.data.isGuest) {
+          participants.push({
+            id: socket.id,
+            isGuest: true,
+            guestName: socket.data.guestName,
+            role: 'guest',
+            displayName: socket.data.guestName
+          });
+        }
+      });
+      
+      this.logger.debug(`📋 Participants for guest: ${participants.length} found`);
+      participants.forEach(p => {
+        this.logger.debug(`  - ${p.displayName} (${p.role})`);
+      });
+      
+      return participants;
+    } catch (error) {
+      this.logger.error('Error getting participants for guest:', error);
       return [];
     }
   }

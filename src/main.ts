@@ -4,6 +4,8 @@ import { ConfigService } from '@nestjs/config';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { Logger } from '@nestjs/common';
+import { NestExpressApplication } from '@nestjs/platform-express';
+import { join } from 'path';
 
 /**
  * Bootstrap function to initialize and start the NestJS application
@@ -13,8 +15,13 @@ async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
   
   try {
-    // Create the NestJS application instance
-    const app = await NestFactory.create(AppModule);
+    // Create the NestJS application instance with Express platform
+    const app = await NestFactory.create<NestExpressApplication>(AppModule);
+    
+    // Serve static files from public directory
+    app.useStaticAssets(join(__dirname, '..', 'public'), {
+      prefix: '/public/',
+    });
     
     // Get configuration service for environment variables
     const configService = app.get(ConfigService);
@@ -27,9 +34,10 @@ async function bootstrap(): Promise<void> {
         directives: {
           defaultSrc: ["'self'"],
           scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-          styleSrc: ["'self'", "'unsafe-inline'"],
+          styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+          fontSrc: ["'self'", "https://fonts.gstatic.com"],
           mediaSrc: ["'self'", 'blob:', 'data:'],
-          connectSrc: ["'self'", 'ws:', 'wss:'],
+          connectSrc: ["'self'", 'ws:', 'wss:', 'https://stun.l.google.com:19302', 'https://stun1.l.google.com:19302'],
         },
       },
     }));
