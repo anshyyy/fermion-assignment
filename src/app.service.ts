@@ -27,11 +27,11 @@ export class AppService {
 </head>
 <body>
     <div class="container">
-        <h1>📺 Live Streams</h1>
+        <h1>Live Streams</h1>
         
         <div id="streamsList">
             <div class="empty-state" id="emptyState">
-                <h2>📭 No live streams</h2>
+                <h2>No live streams</h2>
                 <p>No one is streaming right now</p>
                 <br>
                 <a href="/stream" class="btn">Start Your Stream</a>
@@ -39,8 +39,7 @@ export class AppService {
         </div>
         
         <div class="controls">
-            <button id="refreshBtn" class="btn">🔄 Refresh</button>
-            <button id="debugBtn" class="btn" style="background: #dc3545;">🧪 Debug Stream Status</button>
+            <button id="refreshBtn" class="btn">Refresh</button>
         </div>
     </div>
 
@@ -68,21 +67,20 @@ export class AppService {
 </head>
 <body>
     <div class="container">
-        <h1>📹 Start Your Stream</h1>
+        <h1>Start Your Stream</h1>
         <p>Click "Start Stream" to go live and let others join</p>
         
         <div class="controls">
             <button id="startBtn" class="btn">Start Stream</button>
             <button id="stopBtn" class="btn hidden">Stop Stream</button>
-            <button id="muteBtn" class="btn">🎤 Mic</button>
-            <button id="videoBtn" class="btn">📷 Camera</button>
-            <button id="testRemoveBtn" class="btn" style="background: #dc3545;">🧪 Test Remove</button>
+            <button id="muteBtn" class="btn">Mic</button>
+            <button id="videoBtn" class="btn">Camera</button>
         </div>
             
         <div id="status" class="status">Ready to start streaming</div>
         
         <div id="streamInfo" class="hidden">
-            <p><strong>🔴 Stream is live!</strong> Others can now join or watch</p>
+            <p><strong>Stream is live!</strong> Others can now join or watch</p>
             <p>Send them to: <strong>/watch</strong></p>
         </div>
         
@@ -90,7 +88,7 @@ export class AppService {
         <div id="videoGrid" class="video-grid">
             <div class="video-preview" id="videoPreview">
                 <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #ccc;">
-                    📹 Ready to stream
+                    Ready to stream
                 </div>
             </div>
         </div>

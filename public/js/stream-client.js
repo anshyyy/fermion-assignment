@@ -1,12 +1,12 @@
 // Stream Client - Handles host and guest functionality
 class StreamHost {
     constructor() {
-        console.log('🚀 StreamHost constructor starting...');
+        console.log('StreamHost constructor starting...');
         
         try {
             // Check if Socket.IO is available
             if (typeof io === 'undefined') {
-                console.error('❌ Socket.IO not loaded! Check if script tag is working.');
+                console.error('Socket.IO not loaded! Check if script tag is working.');
                 alert('Socket.IO not loaded. Please refresh the page.');
                 return;
             }
@@ -29,15 +29,15 @@ class StreamHost {
                 ]
             };
             
-            console.log('📋 StreamHost initialized, setting up...');
+            console.log('StreamHost initialized, setting up...');
             
             this.checkIfGuest();
             this.initializeEvents();
             this.initializeSocket();
             
-            console.log('✅ StreamHost setup complete');
+            console.log('StreamHost setup complete');
         } catch (error) {
-            console.error('❌ StreamHost constructor error:', error);
+            console.error('StreamHost constructor error:', error);
         }
     }
     
@@ -48,7 +48,7 @@ class StreamHost {
     }
     
     updateUI() {
-        console.log('🎨 Updating UI, isGuest:', this.isGuest);
+        console.log('Updating UI, isGuest:', this.isGuest);
         
         try {
             const h1 = document.querySelector('h1');
@@ -57,24 +57,24 @@ class StreamHost {
             
             if (this.isGuest) {
                 // Update UI for guest mode
-                if (h1) h1.textContent = '🎤 Join Live Stream';
+                if (h1) h1.textContent = 'Join Live Stream';
                 if (startBtn) startBtn.textContent = 'Join Stream';
                 if (p) p.textContent = 'Click "Join Stream" to go live with the host';
-                console.log('✅ UI updated for guest mode');
+                console.log('UI updated for guest mode');
             } else {
                 // Update UI for host mode
-                if (h1) h1.textContent = '📹 Start Your Stream';
+                if (h1) h1.textContent = 'Start Your Stream';
                 if (startBtn) startBtn.textContent = 'Start Stream';
                 if (p) p.textContent = 'Click "Start Stream" to go live and let others join';
-                console.log('✅ UI updated for host mode');
+                console.log('UI updated for host mode');
             }
         } catch (error) {
-            console.error('❌ Error updating UI:', error);
+            console.error('Error updating UI:', error);
         }
     }
     
     initializeEvents() {
-        console.log('🔧 Setting up event listeners...');
+        console.log('Setting up event listeners...');
         
         try {
             const startBtn = document.getElementById('startBtn');
@@ -88,7 +88,7 @@ class StreamHost {
                     console.log('▶️ Start button clicked');
                     this.startStream();
                 };
-                console.log('✅ Start button listener attached');
+                console.log('Start button listener attached');
             }
             
             if (stopBtn) {
@@ -100,47 +100,42 @@ class StreamHost {
             
             if (muteBtn) {
                 muteBtn.onclick = () => {
-                    console.log('🎤 Mute button clicked');
+                    console.log('Mute button clicked');
                     this.toggleMute();
                 };
             }
             
             if (videoBtn) {
                 videoBtn.onclick = () => {
-                    console.log('📷 Video button clicked');
+                    console.log('Video button clicked');
                     this.toggleVideo();
                 };
             }
             
-            if (testRemoveBtn) {
-                testRemoveBtn.onclick = () => {
-                    console.log('🧪 Test remove button clicked');
-                    this.testRemoveParticipant();
-                };
-            }
+
             
-            console.log('✅ Event listeners setup complete');
+            console.log('Event listeners setup complete');
             
         } catch (error) {
-            console.error('❌ Error setting up events:', error);
+            console.error('Error setting up events:', error);
         }
     }
     
     initializeSocket() {
         this.socket.on('connect', () => {
-            console.log('✅ Connected to server as:', this.socket.id);
+            console.log('Connected to server as:', this.socket.id);
         });
         
         this.socket.on('disconnect', () => {
-            console.log('❌ Disconnected from server');
+            console.log('Disconnected from server');
         });
         
         this.socket.on('error', (error) => {
-            console.error('❌ Socket error:', error);
+            console.error('Socket error:', error);
         });
         
         this.socket.on('guest-joined', (data) => {
-            console.log('🎤 Guest joined:', data.guest);
+            console.log('Guest joined:', data.guest);
             this.addGuest(data.guest);
             this.updateStatus(data.guest.name + ' joined the stream', 'info');
         });
@@ -162,11 +157,11 @@ class StreamHost {
         });
         
         this.socket.on('viewer-joined', (data) => {
-            console.log('👀 Viewer joined, they will request our stream:', data.viewerName);
+            console.log('Viewer joined, they will request our stream:', data.viewerName);
         });
         
         this.socket.on('stream-ended', () => {
-            console.log('📺 Stream ended by host');
+            console.log('Stream ended by host');
             this.updateStatus('Stream ended', 'info');
             if (this.isGuest) {
                 setTimeout(() => {
@@ -177,7 +172,7 @@ class StreamHost {
         
         // For guests: Show host and other participants
         this.socket.on('participants-list', (participants) => {
-            console.log('📋 Received participants list for guest:', participants);
+            console.log('Received participants list for guest:', participants);
             if (this.isGuest) {
                 this.showOtherParticipants(participants);
             }
@@ -185,22 +180,22 @@ class StreamHost {
         
         // WebRTC Signaling events
         this.socket.on('webrtc-offer', async (data) => {
-            console.log('📞 Received WebRTC offer from:', data.from);
+            console.log('Received WebRTC offer from:', data.from);
             await this.handleWebRTCOffer(data);
         });
         
         this.socket.on('webrtc-answer', async (data) => {
-            console.log('📞 Received WebRTC answer from:', data.from);
+            console.log('Received WebRTC answer from:', data.from);
             await this.handleWebRTCAnswer(data);
         });
         
         this.socket.on('webrtc-ice-candidate', async (data) => {
-            console.log('🧊 Received ICE candidate from:', data.from);
+            console.log('Received ICE candidate from:', data.from);
             await this.handleICECandidate(data);
         });
         
         this.socket.on('participant-joined', async (data) => {
-            console.log('🔗 New participant joined, initiating WebRTC:', data.participant);
+            console.log('New participant joined, initiating WebRTC:', data.participant);
             if (this.localStream && data.participant.id !== this.socket.id) {
                 await this.initiateWebRTCConnection(data.participant.id);
             }
@@ -209,7 +204,7 @@ class StreamHost {
         // Listen to ALL socket events for debugging
         this.socket.onAny((event, ...args) => {
             if (event.includes('left') || event.includes('disconnect') || event.includes('leave')) {
-                console.log('🔔 Received event:', event, args);
+                console.log('Received event:', event, args);
             }
         });
     }
@@ -225,18 +220,18 @@ class StreamHost {
                 });
             });
             
-            console.log('📊 Current stream status:', streamStatus);
+            console.log('Current stream status:', streamStatus);
             
             // If someone is already hosting and this isn't a forced guest join, become a guest
             if (streamStatus.isLive && !this.isGuest) {
-                console.log('🎤 Stream already live, joining as guest instead');
+                console.log('Stream already live, joining as guest instead');
                 this.isGuest = true;
                 this.updateUI();
                 
                 // Update the preview label for guest
                 const preview = document.getElementById('videoPreview');
                 if (preview.querySelector('.participant-name')) {
-                    preview.querySelector('.participant-name').textContent = '👤 You (Guest)';
+                    preview.querySelector('.participant-name').textContent = 'You (Guest)';
                 }
             }
             
@@ -248,13 +243,13 @@ class StreamHost {
             });
             
             const preview = document.getElementById('videoPreview');
-            preview.innerHTML = '<video class="video-element" autoplay muted playsinline></video><div class="participant-name">👤 You (Host)</div>';
+            preview.innerHTML = '<video class="video-element" autoplay muted playsinline></video><div class="participant-name">You (Host)</div>';
             preview.querySelector('video').srcObject = this.localStream;
             
             if (this.isGuest) {
                 // Join as guest
                 const guestName = 'Guest-' + Math.random().toString(36).substr(2, 6);
-                console.log('🎤 Joining as guest with name:', guestName);
+                console.log('Joining as guest with name:', guestName);
                 this.socket.emit('join-stream-as-guest', {
                     guestName: guestName
                 });
@@ -271,13 +266,13 @@ class StreamHost {
                 
                 // Also listen for viewer requests (guests need to respond to viewers)
                 setTimeout(() => {
-                    console.log('🎤 Guest ready to send video to viewers');
+                    console.log('Guest ready to send video to viewers');
                 }, 3000);
                 
             } else {
                 // Start hosting the stream
                 const hostName = 'Host-' + Math.random().toString(36).substr(2, 6);
-                console.log('🎥 Starting to host with name:', hostName);
+                console.log('Starting to host with name:', hostName);
                 this.socket.emit('start-hosting', {
                     hostName: hostName
                 });
@@ -287,10 +282,10 @@ class StreamHost {
             this.toggleControls(true);
             
             if (this.isGuest) {
-                this.updateStatus('🎤 You joined the stream!', 'success');
+                this.updateStatus('You joined the stream!', 'success');
             } else {
                 this.showStreamInfo();
-                this.updateStatus('🔴 You are live!', 'success');
+                this.updateStatus('You are live!', 'success');
             }
             
         } catch (error) {
@@ -319,7 +314,7 @@ class StreamHost {
         
         // Reset video preview
         const preview = document.getElementById('videoPreview');
-        preview.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #ccc;">📹 Ready to stream</div>';
+        preview.innerHTML = '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #ccc;">Ready to stream</div>';
         
         this.isStreaming = false;
         this.toggleControls(false);
@@ -347,7 +342,7 @@ class StreamHost {
             this.isMuted = !audioTrack.enabled;
             
             const btn = document.getElementById('muteBtn');
-            btn.textContent = this.isMuted ? '🔇 Muted' : '🎤 Mic';
+            btn.textContent = this.isMuted ? 'Muted' : 'Mic';
             btn.style.background = this.isMuted ? '#dc3545' : '#6c757d';
         }
     }
@@ -361,13 +356,13 @@ class StreamHost {
             this.isVideoEnabled = videoTrack.enabled;
             
             const btn = document.getElementById('videoBtn');
-            btn.textContent = this.isVideoEnabled ? '📷 Camera' : '📷 Off';
+            btn.textContent = this.isVideoEnabled ? 'Camera' : 'Camera Off';
             btn.style.background = this.isVideoEnabled ? '#6c757d' : '#dc3545';
         }
     }
     
     addGuest(guest) {
-        console.log('➕ Adding guest to unified grid:', guest);
+        console.log('Adding guest to unified grid:', guest);
         const videoGrid = document.getElementById('videoGrid');
         
         const guestDiv = document.createElement('div');
@@ -377,29 +372,29 @@ class StreamHost {
         // Create placeholder until real video stream
         const placeholder = document.createElement('div');
         placeholder.style.cssText = 'width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; flex-direction: column; color: white;';
-        placeholder.innerHTML = '<div style="font-size: 2rem;">📹</div><div>' + guest.name + '</div><div>Connecting...</div>';
+        placeholder.innerHTML = '<div style="font-size: 2rem;"></div><div>' + guest.name + '</div><div>Connecting...</div>';
         
         const nameTag = document.createElement('div');
         nameTag.className = 'participant-name';
-        nameTag.textContent = '🎤 ' + guest.name;
+        nameTag.textContent = '' + guest.name;
         
         guestDiv.appendChild(placeholder);
         guestDiv.appendChild(nameTag);
         videoGrid.appendChild(guestDiv);
         this.participants.set(guest.id, guestDiv);
         
-        console.log('✅ Guest added to unified grid, total guests:', this.participants.size);
+        console.log('Guest added to unified grid, total guests:', this.participants.size);
         
         // Simulate receiving guest video after a short delay
         setTimeout(() => {
-            placeholder.innerHTML = '<div style="font-size: 2rem;">📹</div><div>' + guest.name + '</div><div style="color: #28a745; font-weight: bold;">🔴 Live</div>';
+            placeholder.innerHTML = '<div style="font-size: 2rem;"></div><div>' + guest.name + '</div><div style="color: #28a745; font-weight: bold;">Live</div>';
             placeholder.style.background = 'linear-gradient(45deg, #28a745, #20c997)';
         }, 2000);
     }
     
     removeGuest(guestId) {
-        console.log('➖ Attempting to remove guest from unified grid:', guestId);
-        console.log('🔍 Current participants in map:', Array.from(this.participants.keys()));
+        console.log('Attempting to remove guest from unified grid:', guestId);
+        console.log('Current participants in map:', Array.from(this.participants.keys()));
         
         // Try multiple ways to find the element
         let guestElement = null;
@@ -414,13 +409,13 @@ class StreamHost {
         if (!guestElement) {
             const videoGrid = document.getElementById('videoGrid');
             const allParticipants = videoGrid.querySelectorAll('.participant');
-            console.log('🔍 All participant elements in grid:', Array.from(allParticipants).map(el => el.id));
+            console.log('All participant elements in grid:', Array.from(allParticipants).map(el => el.id));
             
             // Try to find by any matching ID
             allParticipants.forEach(element => {
                 if (element.id.includes(guestId)) {
                     guestElement = element;
-                    console.log('🎯 Found element by partial match:', element.id);
+                    console.log('Found element by partial match:', element.id);
                 }
             });
         }
@@ -428,21 +423,21 @@ class StreamHost {
         // Method 3: Use participants map
         if (!guestElement && this.participants.has(guestId)) {
             guestElement = this.participants.get(guestId);
-            console.log('🎯 Found element from participants map');
+            console.log('Found element from participants map');
         }
         
         if (guestElement) {
-            console.log('🗑️ Found guest element, removing from grid:', guestElement.id);
+            console.log('Found guest element, removing from grid:', guestElement.id);
             guestElement.remove();
             this.participants.delete(guestId);
-            console.log('✅ Guest removed from unified grid, remaining guests:', this.participants.size);
+            console.log('Guest removed from unified grid, remaining guests:', this.participants.size);
             
             // Force grid update
             const videoGrid = document.getElementById('videoGrid');
-            console.log('📊 Grid elements after removal:', videoGrid.children.length);
+            console.log('Grid elements after removal:', videoGrid.children.length);
         } else {
-            console.error('❌ Guest element not found for removal! ID:', guestId);
-            console.log('🔍 Available elements:');
+            console.error('Guest element not found for removal! ID:', guestId);
+            console.log('Available elements:');
             const videoGrid = document.getElementById('videoGrid');
             Array.from(videoGrid.children).forEach(child => {
                 console.log('  - Element ID:', child.id, 'Class:', child.className);
@@ -480,7 +475,7 @@ class StreamHost {
     // WebRTC Connection Management
     async initiateWebRTCConnection(remoteSocketId) {
         try {
-            console.log('🔗 Initiating WebRTC connection to:', remoteSocketId);
+            console.log('Initiating WebRTC connection to:', remoteSocketId);
             
             // Create peer connection
             const peerConnection = new RTCPeerConnection(this.rtcConfig);
@@ -490,13 +485,13 @@ class StreamHost {
             if (this.localStream) {
                 this.localStream.getTracks().forEach(track => {
                     peerConnection.addTrack(track, this.localStream);
-                    console.log('➕ Added local track:', track.kind);
+                    console.log('Added local track:', track.kind);
                 });
             }
             
             // Handle remote stream
             peerConnection.ontrack = (event) => {
-                console.log('📹 Received remote stream from:', remoteSocketId);
+                console.log('Received remote stream from:', remoteSocketId);
                 const remoteStream = event.streams[0];
                 this.displayRemoteVideo(remoteSocketId, remoteStream);
             };
@@ -504,7 +499,7 @@ class StreamHost {
             // Handle ICE candidates
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
-                    console.log('🧊 Sending ICE candidate to:', remoteSocketId);
+                    console.log('Sending ICE candidate to:', remoteSocketId);
                     this.socket.emit('webrtc-ice-candidate', {
                         to: remoteSocketId,
                         candidate: event.candidate
@@ -516,20 +511,20 @@ class StreamHost {
             const offer = await peerConnection.createOffer();
             await peerConnection.setLocalDescription(offer);
             
-            console.log('📤 Sending WebRTC offer to:', remoteSocketId);
+            console.log('Sending WebRTC offer to:', remoteSocketId);
             this.socket.emit('webrtc-offer', {
                 to: remoteSocketId,
                 offer: offer
             });
             
         } catch (error) {
-            console.error('❌ Error initiating WebRTC connection:', error);
+            console.error('Error initiating WebRTC connection:', error);
         }
     }
     
     async handleWebRTCOffer(data) {
         try {
-            console.log('📥 Handling WebRTC offer from:', data.from);
+            console.log('Handling WebRTC offer from:', data.from);
             
             // Create peer connection
             const peerConnection = new RTCPeerConnection(this.rtcConfig);
@@ -539,15 +534,15 @@ class StreamHost {
             if (this.localStream) {
                 this.localStream.getTracks().forEach(track => {
                     peerConnection.addTrack(track, this.localStream);
-                    console.log('➕ Added local track to send to requester:', track.kind);
+                    console.log('Added local track to send to requester:', track.kind);
                 });
             } else {
-                console.warn('⚠️ No local stream available to send to:', data.from);
+                console.warn('No local stream available to send to:', data.from);
             }
             
             // Handle remote stream (if any - viewers won't send video back)
             peerConnection.ontrack = (event) => {
-                console.log('📹 Received remote stream from:', data.from);
+                console.log('Received remote stream from:', data.from);
                 const remoteStream = event.streams[0];
                 this.displayRemoteVideo(data.from, remoteStream);
             };
@@ -555,7 +550,7 @@ class StreamHost {
             // Handle ICE candidates
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
-                    console.log('🧊 Sending ICE candidate to:', data.from);
+                    console.log('Sending ICE candidate to:', data.from);
                     this.socket.emit('webrtc-ice-candidate', {
                         to: data.from,
                         candidate: event.candidate
@@ -568,49 +563,49 @@ class StreamHost {
             const answer = await peerConnection.createAnswer();
             await peerConnection.setLocalDescription(answer);
             
-            console.log('📤 Sending WebRTC answer to (will include our video):', data.from);
+            console.log('Sending WebRTC answer to (will include our video):', data.from);
             this.socket.emit('webrtc-answer', {
                 to: data.from,
                 answer: answer
             });
             
         } catch (error) {
-            console.error('❌ Error handling WebRTC offer:', error);
+            console.error('Error handling WebRTC offer:', error);
         }
     }
     
     async handleWebRTCAnswer(data) {
         try {
-            console.log('📥 Handling WebRTC answer from:', data.from);
+            console.log('Handling WebRTC answer from:', data.from);
             const peerConnection = this.peerConnections.get(data.from);
             
             if (peerConnection) {
                 await peerConnection.setRemoteDescription(data.answer);
-                console.log('✅ WebRTC connection established with:', data.from);
+                console.log('WebRTC connection established with:', data.from);
             }
             
         } catch (error) {
-            console.error('❌ Error handling WebRTC answer:', error);
+            console.error('Error handling WebRTC answer:', error);
         }
     }
     
     async handleICECandidate(data) {
         try {
-            console.log('🧊 Handling ICE candidate from:', data.from);
+            console.log('Handling ICE candidate from:', data.from);
             const peerConnection = this.peerConnections.get(data.from);
             
             if (peerConnection) {
                 await peerConnection.addIceCandidate(data.candidate);
-                console.log('✅ ICE candidate added for:', data.from);
+                console.log('ICE candidate added for:', data.from);
             }
             
         } catch (error) {
-            console.error('❌ Error handling ICE candidate:', error);
+            console.error('Error handling ICE candidate:', error);
         }
     }
     
     displayRemoteVideo(socketId, stream) {
-        console.log('🖥️ Displaying remote video in unified grid for:', socketId);
+        console.log('Displaying remote video in unified grid for:', socketId);
         
         // Find existing participant container in the unified grid
         let participantElement = document.getElementById('participant-' + socketId) || 
@@ -635,18 +630,18 @@ class StreamHost {
         // Create name tag
         const nameTag = document.createElement('div');
         nameTag.className = 'participant-name';
-        nameTag.textContent = '🔴 Live Guest';
+        nameTag.textContent = 'Live Guest';
         
         // Clear existing content and add video
         participantElement.innerHTML = '';
         participantElement.appendChild(video);
         participantElement.appendChild(nameTag);
         
-        console.log('✅ Remote video displayed in unified grid for:', socketId);
+        console.log('Remote video displayed in unified grid for:', socketId);
     }
     
     showOtherParticipants(participants) {
-        console.log('👥 Showing other participants for guest in unified grid:', participants);
+        console.log('Showing other participants for guest in unified grid:', participants);
         const videoGrid = document.getElementById('videoGrid');
         
         // Clear existing participants (except own video preview)
@@ -656,7 +651,7 @@ class StreamHost {
         
         participants.forEach(participant => {
             if (participant.id !== this.socket.id) { // Don't show self
-                console.log('➕ Adding participant to guest unified grid:', participant);
+                console.log('Adding participant to guest unified grid:', participant);
                 
                 const participantDiv = document.createElement('div');
                 participantDiv.className = 'participant';
@@ -665,7 +660,7 @@ class StreamHost {
                 const isHost = participant.role === 'host' || participant.isHost;
                 const name = participant.hostName || participant.guestName || participant.displayName || 'Participant';
                 const role = isHost ? 'Host' : 'Guest';
-                const icon = isHost ? '🎥' : '🎤';
+                const icon = isHost ? '' : '';
                 
                 // Create video placeholder
                 const placeholder = document.createElement('div');
@@ -681,48 +676,24 @@ class StreamHost {
                 videoGrid.appendChild(participantDiv);
                 this.participants.set(participant.id, participantDiv);
                 
-                console.log('✅ Added participant to unified grid:', name, 'Role:', role);
+                console.log('Added participant to unified grid:', name, 'Role:', role);
             }
         });
         
-        console.log('✅ Total participants shown to guest in unified grid:', this.participants.size);
+        console.log('Total participants shown to guest in unified grid:', this.participants.size);
     }
     
-    // Test method to manually remove a participant
-    testRemoveParticipant() {
-        console.log('🧪 Testing participant removal...');
-        const videoGrid = document.getElementById('videoGrid');
-        const participants = videoGrid.querySelectorAll('.participant');
-        
-        console.log('📊 Current grid state:');
-        console.log('  - Total elements in grid:', videoGrid.children.length);
-        console.log('  - Participant elements:', participants.length);
-        console.log('  - Participants in map:', this.participants.size);
-        
-        if (participants.length > 0) {
-            console.log('🎯 Removing first participant for test...');
-            const firstParticipant = participants[0];
-            console.log('  - Removing element:', firstParticipant.id);
-            
-            // Get the ID from the element
-            const elementId = firstParticipant.id;
-            const participantId = elementId.replace('guest-', '').replace('participant-', '');
-            
-            this.removeGuest(participantId);
-        } else {
-            console.log('❌ No participants to remove');
-        }
-    }
+
 }
 
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('📄 DOM ready, creating StreamHost...');
+    console.log('DOM ready, creating StreamHost...');
     window.streamHost = new StreamHost();
 });
 
 // Also initialize immediately if DOM is already ready
 if (document.readyState !== 'loading') {
-    console.log('📄 DOM already ready, creating StreamHost...');
+    console.log('DOM already ready, creating StreamHost...');
     window.streamHost = new StreamHost();
 } 
