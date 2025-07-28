@@ -18,10 +18,8 @@ async function bootstrap(): Promise<void> {
     // Create the NestJS application instance with Express platform
     const app = await NestFactory.create<NestExpressApplication>(AppModule);
     
-    // Serve static files from public directory
-    app.useStaticAssets(join(__dirname, '..', 'public'), {
-      prefix: '/public/',
-    });
+    // Serve static files from public directory (without prefix for root access)
+    app.useStaticAssets(join(__dirname, '..', 'public'));
     
     // Get configuration service for environment variables
     const configService = app.get(ConfigService);
@@ -33,21 +31,24 @@ async function bootstrap(): Promise<void> {
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'self'"],
-          scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+          scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.jsdelivr.net"],
           styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
           fontSrc: ["'self'", "https://fonts.gstatic.com"],
-          mediaSrc: ["'self'", 'blob:', 'data:'],
-          connectSrc: ["'self'", 'ws:', 'wss:', 'https://stun.l.google.com:19302', 'https://stun1.l.google.com:19302'],
+          mediaSrc: ["'self'", 'blob:', 'data:', 'http:', 'https:'],
+          connectSrc: ["'self'", 'ws:', 'wss:', 'https://stun.l.google.com:19302', 'https://stun1.l.google.com:19302', "https://cdn.jsdelivr.net"],
+          workerSrc: ["'self'", 'blob:'],
+          childSrc: ["'self'", 'blob:'],
         },
       },
     }));
     
-    // CORS configuration for cross-origin requests
+    // CORS configuration for cross-origin requests (including HLS streaming)
     app.enableCors({
       origin: corsOrigin,
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'Accept', 'Accept-Encoding'],
+      exposedHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Length'],
     });
     
     // Global validation pipe with transformation and whitelist

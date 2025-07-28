@@ -13,11 +13,13 @@ import { Server, Socket } from 'socket.io';
 import { v4 as uuidv4 } from 'uuid';
 import { MediaSoupService } from '@/modules/streaming/mediasoup.service';
 import { RoomService } from '@/modules/streaming/room.service';
+
 import {
   SocketEvents,
   UserRole,
   ConnectionState,
   IUserSession,
+  IParticipantStreamInfo,
 } from '@/types/webrtc.types';
 
 /**
@@ -100,7 +102,8 @@ export class WebRtcGateway
     try {
       const { roomId, role, displayName } = data;
       
-      this.logger.log(`👥 User ${client.id} joining room ${roomId} as ${role}`);
+      this.logger.log(`🎬 [DEBUG] MediaSoup JOIN_ROOM request from ${client.id}`);
+      this.logger.log(`👥 [DEBUG] User ${client.id} joining room ${roomId} as ${role} with name ${displayName}`);
 
       // Validate room capacity
       if (role === UserRole.VIEWER) {
@@ -307,13 +310,15 @@ export class WebRtcGateway
       const roomId = client.data.roomId;
       const role = client.data.role;
 
+      this.logger.log(`🎬 [DEBUG] PRODUCE request received from ${client.id} for ${data.kind} in room ${roomId} as ${role}`);
+
       if (!roomId || (role !== UserRole.STREAMER && role !== UserRole.PARTICIPANT)) {
         throw new Error('Only streamers and participants can produce media');
       }
 
       const { transportId, kind, rtpParameters } = data;
       
-      this.logger.debug(`📤 Creating producer for ${client.id} (${kind})`);
+      this.logger.log(`📤 [DEBUG] Creating producer for ${client.id} (${kind}) on transport ${transportId}`);
 
       // Create producer using MediaSoup service
       const producerInfo = await this.mediaSoupService.createProducer(
@@ -585,18 +590,32 @@ export class WebRtcGateway
 
       // Handle different user types
       if (client.data.isHost) {
-        // Host left - notify everyone stream ended
+        // Host left - stop HLS stream and notify everyone
+        try {
+          await this.mediaSoupService.removeParticipantFromHLSStream(streamId, client.id);
+          await this.mediaSoupService.stopHLSStream(streamId);
+          this.logger.log(`🛑 Stopped HLS stream for room: ${streamId}`);
+        } catch (error) {
+          this.logger.warn('Error stopping HLS stream:', error);
+        }
+        
         this.server.to(streamId).emit('stream-ended');
         this.logger.log(`🛑 Host left - stream ended`);
         
       } else if (client.data.isGuest) {
-        // Guest left - notify others
+        // Guest left - remove from HLS stream
+        try {
+          await this.mediaSoupService.removeParticipantFromHLSStream(streamId, client.id);
+        } catch (error) {
+          this.logger.warn('Error removing guest from HLS stream:', error);
+        }
+        
+        // Notify others
         this.server.to(streamId).emit('guest-left', {
           guestId: client.id,
           guestName: client.data.guestName
         });
         
-        // Notify viewers about participant leaving
         this.server.to(streamId).emit('participant-left', {
           participantId: client.id
         });
@@ -605,7 +624,7 @@ export class WebRtcGateway
         
       } else if (client.data.isViewer) {
         // Viewer left - just log
-        this.logger.log(`👀 Viewer "${client.data.viewerName}" left`);
+        this.logger.log(`👀 Viewer "${client.data.viewerName}" left HLS stream`);
       }
 
       // Broadcast updated counts
@@ -715,6 +734,33 @@ export class WebRtcGateway
       // Join the main stream room
       await client.join(streamId);
 
+      // Create participant stream info for HLS
+      const participantStreamInfo: IParticipantStreamInfo = {
+        participantId: client.id,
+        displayName: hostName,
+        role: UserRole.STREAMER,
+        hasVideo: true,
+        hasAudio: true,
+      };
+
+      // Add participant to HLS stream
+      await this.mediaSoupService.addParticipantToHLSStream(
+        streamId,
+        client.id,
+        participantStreamInfo
+      );
+
+      // Start HLS stream if not already started
+      if (!this.mediaSoupService.isHLSStreamActive(streamId)) {
+        try {
+          this.logger.log(`🎬 Starting HLS stream with real participant: ${hostName}`);
+          await this.mediaSoupService.startHLSStream(streamId, [client.id]);
+          this.logger.log(`🎬 Started HLS stream for room: ${streamId}`);
+        } catch (error) {
+          this.logger.warn(`HLS stream might already be running for ${streamId}:`, error);
+        }
+      }
+
       // Notify viewers about new host (if any viewers already there)
       client.to(streamId).emit('participant-joined', {
         participant: {
@@ -728,18 +774,14 @@ export class WebRtcGateway
       this.broadcastParticipantCountUpdate(streamId);
       this.broadcastParticipantsUpdate(streamId);
 
-      this.logger.log(`🎥 ${hostName} started hosting the main stream`);
+      this.logger.log(`🎥 ${hostName} started hosting the main stream with HLS`);
       
       // Broadcast to all that stream is now live
       this.server.emit('stream-status-changed', {
         isLive: true,
         hostName: hostName,
-        streamId: streamId
-      });
-      this.logger.debug(`🔍 Socket ${client.id} data:`, {
-        streamId: client.data.streamId,
-        hostName: client.data.hostName,
-        isHost: client.data.isHost
+        streamId: streamId,
+        hlsUrl: `/hls/${streamId}/playlist.m3u8`
       });
 
       // Verify the socket joined the room
@@ -798,7 +840,7 @@ export class WebRtcGateway
       // Get all sockets in the main stream room
       const sockets = await this.server.in(streamId).fetchSockets();
       
-      this.logger.debug(`🔍 Checking room ${streamId} with ${sockets.length} sockets:`);
+      this.logger.debug(`🔍 Checking room ${streamId} with ${sockets.length} sockets`);
       sockets.forEach((socket, index) => {
         this.logger.debug(`  Socket ${index + 1}: ${socket.id}`, {
           isHost: socket.data.isHost,
@@ -817,15 +859,21 @@ export class WebRtcGateway
         isHost: host.data.isHost
       } : 'No host found');
       
+      // Get HLS stream info
+      const hlsStreamInfo = this.mediaSoupService.getHLSStreamInfo(streamId);
+      
       const status = {
         isLive: !!host,
         hostName: host?.data.hostName || null,
         participantCount: sockets.length,
         guestCount: sockets.filter(s => s.data.isGuest).length,
-        viewerCount: sockets.filter(s => s.data.isViewer).length
+        viewerCount: sockets.filter(s => s.data.isViewer).length,
+        hlsAvailable: !!hlsStreamInfo,
+        hlsUrl: hlsStreamInfo?.playlistUrl || null,
+        streamInfo: hlsStreamInfo || null,
       };
 
-      this.logger.debug(`📊 Main stream status:`, status);
+      this.logger.debug(`📊 Main stream status with HLS:`, status);
       
       // Also emit as event in case callback doesn't work
       client.emit('stream-status-response', status);
@@ -836,12 +884,19 @@ export class WebRtcGateway
     } catch (error) {
       this.logger.error('Error getting stream status:', error);
       // Return empty status on error
-      return { isLive: false, hostName: null, participantCount: 0 };
+      return { 
+        isLive: false, 
+        hostName: null, 
+        participantCount: 0,
+        hlsAvailable: false,
+        hlsUrl: null,
+        streamInfo: null,
+      };
     }
   }
 
   /**
-   * Join main stream as viewer (watch only)
+   * Join main stream as viewer (watch only) - Now uses HLS
    */
   @SubscribeMessage('join-stream-as-viewer')
   async handleJoinStreamAsViewer(@ConnectedSocket() client: Socket): Promise<void> {
@@ -856,7 +911,27 @@ export class WebRtcGateway
       client.data.isViewer = true;
       client.data.viewerName = 'Viewer-' + Math.random().toString(36).substr(2, 6);
 
-      // Send current participants to the new viewer
+      // Get HLS stream info
+      const hlsStreamInfo = this.mediaSoupService.getHLSStreamInfo(streamId);
+      
+      if (hlsStreamInfo) {
+        // Send HLS stream URL to viewer
+        client.emit('hls-stream-ready', {
+          playlistUrl: hlsStreamInfo.playlistUrl,
+          streamInfo: hlsStreamInfo,
+        });
+        
+        this.logger.log(`📺 Viewer "${client.data.viewerName}" connected to HLS stream`);
+      } else {
+        // No HLS stream available
+        client.emit('no-stream-available', {
+          message: 'No live stream is currently available'
+        });
+        
+        this.logger.log(`📺 Viewer "${client.data.viewerName}" joined but no HLS stream available`);
+      }
+
+      // Send current participants to the new viewer (for UI display)
       const participants = await this.getCurrentParticipants(streamId);
       client.emit('participants-update', participants);
 
@@ -867,8 +942,6 @@ export class WebRtcGateway
 
       // Broadcast updated participant count
       this.broadcastParticipantCountUpdate(streamId);
-
-      this.logger.log(`👀 Viewer "${client.data.viewerName}" joined main stream`);
 
     } catch (error) {
       this.logger.error('Error joining as viewer:', error);
@@ -897,6 +970,22 @@ export class WebRtcGateway
       client.data.guestName = guestName;
       client.data.role = 'guest';
 
+      // Create participant stream info for HLS
+      const participantStreamInfo: IParticipantStreamInfo = {
+        participantId: client.id,
+        displayName: guestName,
+        role: UserRole.PARTICIPANT,
+        hasVideo: true,
+        hasAudio: true,
+      };
+
+      // Add participant to HLS stream
+      await this.mediaSoupService.addParticipantToHLSStream(
+        streamId,
+        client.id,
+        participantStreamInfo
+      );
+
       // Send current participants to the new guest (so they can see host + other guests)
       const participants = await this.getCurrentParticipantsForGuest(streamId);
       client.emit('participants-list', participants);
@@ -924,7 +1013,7 @@ export class WebRtcGateway
       this.broadcastParticipantCountUpdate(streamId);
       this.broadcastParticipantsUpdate(streamId);
 
-      this.logger.log(`🎤 Guest "${guestName}" joined main stream`);
+      this.logger.log(`🎤 Guest "${guestName}" joined main stream with HLS support`);
 
     } catch (error) {
       this.logger.error('Error joining as guest:', error);

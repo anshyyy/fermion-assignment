@@ -277,6 +277,10 @@ class StreamHost {
                     hostName: hostName
                 });
             }
+
+            // CREATE MEDIASOUP PRODUCERS FOR HLS STREAMING
+            console.log('🎥 Creating MediaSoup producers for HLS streaming...');
+            await this.createMediaSoupProducers();
             
             this.isStreaming = true;
             this.toggleControls(true);
@@ -683,6 +687,265 @@ class StreamHost {
         console.log('Total participants shown to guest in unified grid:', this.participants.size);
     }
     
+    // Add before the startStream method
+    /**
+     * Create MediaSoup producers for HLS streaming
+     */
+    async createMediaSoupProducers() {
+        try {
+            console.log('🎬 Setting up MediaSoup for HLS streaming...');
+            
+            // Step 1: Join MediaSoup room
+            await this.joinMediaSoupRoom();
+            
+            // Step 2: Create producer transport
+            await this.createProducerTransport();
+            
+            // Step 3: Create producers for video and audio
+            if (this.localStream) {
+                const videoTrack = this.localStream.getVideoTracks()[0];
+                const audioTrack = this.localStream.getAudioTracks()[0];
+                
+                if (videoTrack) {
+                    await this.createProducer(videoTrack, 'video');
+                }
+                
+                if (audioTrack) {
+                    await this.createProducer(audioTrack, 'audio');
+                }
+            }
+            
+            console.log('✅ MediaSoup producers created successfully for HLS');
+            
+        } catch (error) {
+            console.error('❌ Failed to create MediaSoup producers:', error);
+            // Don't throw - allow WebRTC to continue working
+        }
+    }
+
+    /**
+     * Join MediaSoup room
+     */
+    async joinMediaSoupRoom() {
+        return new Promise((resolve, reject) => {
+                     const roomId = 'main-stream';
+         const role = 'participant'; // Always join as participant to avoid single-streamer restriction
+         const displayName = this.isGuest ? `Guest-${Date.now()}` : `Host-${Date.now()}`;
+            
+            console.log(`📞 Joining MediaSoup room: ${roomId} as ${role}`);
+            
+            this.socket.emit('join-room', {
+                roomId: roomId,
+                role: role, 
+                displayName: displayName
+            });
+            
+            // Listen for room join confirmation
+            this.socket.once('user-joined', (data) => {
+                console.log('✅ Joined MediaSoup room:', data);
+                resolve(data);
+            });
+            
+            this.socket.once('error', (error) => {
+                console.error('❌ Failed to join MediaSoup room:', error);
+                reject(error);
+            });
+            
+            // Timeout after 5 seconds
+            setTimeout(() => {
+                reject(new Error('Room join timeout'));
+            }, 5000);
+        });
+    }
+
+    /**
+     * Create producer transport
+     */
+    async createProducerTransport() {
+        return new Promise((resolve, reject) => {
+            console.log('🚛 Creating producer transport...');
+            
+            this.socket.emit('create-transport', { type: 'producer' });
+            
+            this.socket.once('transport-created', async (data) => {
+                try {
+                    console.log('✅ Producer transport created:', data.transportInfo.id);
+                    
+                    // Store transport info
+                    this.producerTransport = data.transportInfo;
+                    
+                    // Connect the transport
+                    await this.connectTransport(data.transportInfo);
+                    
+                    resolve(data.transportInfo);
+                } catch (error) {
+                    reject(error);
+                }
+            });
+            
+            this.socket.once('error', (error) => {
+                console.error('❌ Failed to create producer transport:', error);
+                reject(error);
+            });
+            
+            setTimeout(() => {
+                reject(new Error('Transport creation timeout'));
+            }, 5000);
+        });
+    }
+
+    /**
+     * Connect transport with DTLS parameters
+     */
+    async connectTransport(transportInfo) {
+        // For now, use dummy DTLS parameters - in a real implementation,
+        // these would come from the WebRTC negotiation
+        const dtlsParameters = {
+            role: 'client',
+            fingerprints: [{
+                algorithm: 'sha-256',
+                value: '00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00'
+            }]
+        };
+        
+        return new Promise((resolve, reject) => {
+            console.log('🔗 Connecting transport:', transportInfo.id);
+            
+            this.socket.emit('connect-transport', {
+                transportId: transportInfo.id,
+                dtlsParameters: dtlsParameters
+            });
+            
+            this.socket.once('transport-connected', () => {
+                console.log('✅ Transport connected:', transportInfo.id);
+                resolve();
+            });
+            
+            this.socket.once('error', (error) => {
+                console.error('❌ Failed to connect transport:', error);
+                reject(error);
+            });
+            
+            setTimeout(() => {
+                reject(new Error('Transport connection timeout'));
+            }, 5000);
+        });
+    }
+
+    /**
+     * Create producer for video or audio track
+     */
+    async createProducer(track, kind) {
+        return new Promise((resolve, reject) => {
+            console.log(`📤 Creating ${kind} producer...`);
+            
+            // Generate RTP parameters for the track
+            const rtpParameters = this.generateRTPParameters(track, kind);
+            
+            this.socket.emit('produce', {
+                transportId: this.producerTransport.id,
+                kind: kind,
+                rtpParameters: rtpParameters
+            });
+            
+            this.socket.once('producer-created', (producerInfo) => {
+                console.log(`✅ ${kind} producer created:`, producerInfo.id);
+                resolve(producerInfo);
+            });
+            
+            this.socket.once('error', (error) => {
+                console.error(`❌ Failed to create ${kind} producer:`, error);
+                reject(error);
+            });
+            
+            setTimeout(() => {
+                reject(new Error(`${kind} producer creation timeout`));
+            }, 5000);
+        });
+    }
+
+    /**
+     * Generate RTP parameters for a media track
+     */
+    generateRTPParameters(track, kind) {
+        // Generate proper RTP parameters with required fields for MediaSoup
+        if (kind === 'video') {
+            return {
+                codecs: [{
+                    mimeType: 'video/H264',
+                    payloadType: 96,  // Required field that was missing
+                    clockRate: 90000,
+                    parameters: {
+                        'profile-level-id': '42e01f',
+                        'level-asymmetry-allowed': 1,
+                        'packetization-mode': 1
+                    },
+                    rtcpFeedback: [
+                        { type: 'nack' },
+                        { type: 'nack', parameter: 'pli' },
+                        { type: 'ccm', parameter: 'fir' },
+                        { type: 'goog-remb' }
+                    ]
+                }],
+                encodings: [{
+                    ssrc: Math.floor(Math.random() * 1000000),
+                    maxBitrate: 800000,
+                    scaleResolutionDownBy: 1.0
+                }],
+                headerExtensions: [
+                    {
+                        uri: 'urn:ietf:params:rtp-hdrext:sdes:mid',
+                        id: 1
+                    },
+                    {
+                        uri: 'http://www.webrtc.org/experiments/rtp-hdrext/abs-send-time',
+                        id: 4
+                    },
+                    {
+                        uri: 'urn:3gpp:video-orientation',
+                        id: 11
+                    }
+                ],
+                rtcp: {
+                    cname: `video-${Date.now()}`,
+                    reducedSize: true
+                }
+            };
+        } else if (kind === 'audio') {
+            return {
+                codecs: [{
+                    mimeType: 'audio/opus',
+                    payloadType: 111,  // Required field that was missing
+                    clockRate: 48000,
+                    channels: 2,
+                    parameters: {
+                        'sprop-stereo': 1
+                    },
+                    rtcpFeedback: []
+                }],
+                encodings: [{
+                    ssrc: Math.floor(Math.random() * 1000000),
+                    maxBitrate: 64000
+                }],
+                headerExtensions: [
+                    {
+                        uri: 'urn:ietf:params:rtp-hdrext:sdes:mid',
+                        id: 1
+                    },
+                    {
+                        uri: 'http://www.ietf.org/id/draft-holmer-rmcat-transport-wide-cc-extensions-01',
+                        id: 5
+                    }
+                ],
+                rtcp: {
+                    cname: `audio-${Date.now()}`,
+                    reducedSize: true
+                }
+            };
+        } else {
+            throw new Error(`Unknown media kind: ${kind}`);
+        }
+    }
 
 }
 

@@ -1,7 +1,7 @@
-// Watch Client - Handles viewer functionality
-class StreamsBrowser {
+// Watch Client - HLS-based viewer functionality for live streaming
+class HLSStreamsBrowser {
     constructor() {
-        console.log('StreamsBrowser constructor starting...');
+        console.log('HLSStreamsBrowser constructor starting...');
         
         try {
             // Check if Socket.IO is available
@@ -13,62 +13,122 @@ class StreamsBrowser {
             
             this.socket = io();
             this.isViewing = false;
+            this.hlsPlayer = null;
+            this.videoElement = null;
+            this.currentStreamInfo = null;
             this.participants = new Map();
-            this.peerConnections = new Map(); // Store WebRTC connections for viewers
             
-            // WebRTC configuration for viewers
-            this.rtcConfig = {
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' }
-                ]
+            // HLS.js configuration
+            this.hlsConfig = {
+                debug: false,
+                enableWorker: false,  // Disable workers to avoid CSP violations
+                lowLatencyMode: true,
+                backBufferLength: 90,
+                maxBufferLength: 30,
+                maxMaxBufferLength: 60,
+                startLevel: -1, // Auto quality selection
+                capLevelToPlayerSize: true,
             };
             
+            this.setupSocketEvents();
+            this.setupUIEvents();
+            
+            // Check for live streams on connection
             this.socket.on('connect', () => {
                 console.log('Connected to server');
                 this.checkAndJoinStream();
             });
             
-            this.socket.on('disconnect', (reason) => {
-                console.log('Disconnected from server:', reason);
-            });
-            
-            this.socket.on('stream-ended', () => {
-                console.log('Stream ended, going back to browse mode');
-                this.showBrowseMode();
-            });
-            
-            // Listen for stream status responses (in case callback doesn't work)
-            this.socket.on('stream-status-response', (status) => {
-                console.log('Received stream status via event:', status);
-                if (status && status.isLive) {
-                    this.joinAsViewer(status);
-                } else {
-                    this.showBrowseMode();
-                }
-            });
-            
-            this.socket.on('stream-status-changed', (data) => {
-                if (data.isLive) {
-                    console.log('Stream went live, auto-joining...');
-                    this.checkAndJoinStream();
-                } else {
-                    console.log('Stream ended, showing browse mode');
-                    this.showBrowseMode();
-                }
-            });
-            
-            this.socket.on('error', (error) => {
-                console.error('Socket error:', error);
-            });
-            
-            // Setup UI events after socket is ready
-            this.setupUIEvents();
-            
-            console.log('StreamsBrowser setup complete');
+            console.log('HLSStreamsBrowser setup complete');
         } catch (error) {
-            console.error('StreamsBrowser constructor error:', error);
+            console.error('HLSStreamsBrowser constructor error:', error);
         }
+    }
+    
+    setupSocketEvents() {
+        console.log('Setting up socket events...');
+        
+        this.socket.on('disconnect', (reason) => {
+            console.log('Disconnected from server:', reason);
+            if (this.hlsPlayer) {
+                this.stopHLSPlayback();
+            }
+        });
+        
+        // Stream status events
+        this.socket.on('stream-status-response', (status) => {
+            console.log('Received stream status:', status);
+            this.handleStreamStatus(status);
+        });
+        
+        this.socket.on('stream-status-changed', (data) => {
+            console.log('Stream status changed:', data);
+            if (data.isLive && data.hlsUrl) {
+                console.log('Stream went live with HLS, auto-joining...');
+                this.checkAndJoinStream();
+            } else {
+                console.log('Stream ended, showing browse mode');
+                this.showBrowseMode();
+            }
+        });
+        
+        // HLS stream events
+        this.socket.on('hls-stream-ready', async (data) => {
+            console.log('HLS stream ready:', data);
+            
+            // Check if this is a real participant stream or just test pattern
+            if (data.streamInfo && data.streamInfo.participantCount > 0) {
+                // Real participants - use HLS
+                await this.startHLSPlayback(data.playlistUrl, data.streamInfo);
+            } else {
+                // No real participants - show message and try WebRTC fallback
+                console.log('No real participants in HLS stream, trying WebRTC fallback...');
+                this.showHLSViewerUI();
+                this.showError('Connecting to live participants via WebRTC...');
+                
+                // Try to connect as WebRTC viewer to see live participants
+                setTimeout(() => {
+                    this.requestAllVideoStreams();
+                }, 2000);
+            }
+        });
+        
+        this.socket.on('no-stream-available', (data) => {
+            console.log('No stream available:', data);
+            this.showBrowseMode();
+        });
+        
+        this.socket.on('stream-ended', () => {
+            console.log('Stream ended, going back to browse mode');
+            this.stopHLSPlayback();
+            this.showBrowseMode();
+        });
+        
+        // Participant events (for UI display)
+        this.socket.on('participants-update', (participants) => {
+            console.log('Received participants update:', participants);
+            this.updateParticipantsList(participants);
+        });
+        
+        this.socket.on('participant-joined', (data) => {
+            console.log('Participant joined event:', data);
+            this.addParticipantToList(data.participant);
+        });
+        
+        this.socket.on('participant-left', (data) => {
+            console.log('Participant left event:', data);
+            this.removeParticipantFromList(data.participantId);
+        });
+        
+        this.socket.on('participant-count-update', (count) => {
+            console.log('Participant count update:', count);
+            this.updateParticipantCount(count);
+        });
+        
+        this.socket.on('error', (error) => {
+            console.error('Socket error:', error);
+            this.showError('Connection error: ' + error.message);
+        });
     }
     
     setupUIEvents() {
@@ -89,7 +149,6 @@ class StreamsBrowser {
         // Add timeout to handle cases where callback doesn't work
         let responseReceived = false;
         
-        // Use timeout fallback
         setTimeout(() => {
             if (!responseReceived) {
                 console.log('No response from get-stream-status, retrying...');
@@ -100,84 +159,227 @@ class StreamsBrowser {
         this.socket.emit('get-stream-status', (status) => {
             responseReceived = true;
             console.log('Received stream status:', status);
-            console.log('Status details - isLive:', status?.isLive, 'hostName:', status?.hostName, 'participantCount:', status?.participantCount);
-            
-            if (status && status.isLive) {
-                console.log('Live stream found - auto-joining as viewer');
-                this.joinAsViewer(status);
-            } else {
-                console.log('No live stream - showing browse mode');
-                this.showBrowseMode();
-            }
+            this.handleStreamStatus(status);
         });
+    }
+    
+    handleStreamStatus(status) {
+        console.log('Handling stream status:', status);
+        
+        if (status && status.isLive && status.hlsAvailable) {
+            console.log('Live HLS stream found - joining as viewer');
+            this.joinAsHLSViewer(status);
+        } else if (status && status.isLive && !status.hlsAvailable) {
+            console.log('Live stream found but HLS not ready yet - will retry');
+            setTimeout(() => this.checkAndJoinStream(), 2000);
+        } else {
+            console.log('No live stream - showing browse mode');
+            this.showBrowseMode();
+        }
     }
     
     retryStreamCheck() {
         console.log('Retrying stream check...');
-        // Try without callback first
         this.socket.emit('get-stream-status');
         
-        // Then try alternative method
         setTimeout(() => {
             this.socket.emit('join-stream-as-viewer');
         }, 2000);
     }
     
-    joinAsViewer(status) {
+    joinAsHLSViewer(status) {
+        console.log('Joining as HLS viewer with status:', status);
+        
         this.isViewing = true;
+        this.currentStreamInfo = status.streamInfo;
         this.participants = new Map();
         
-        // Update only the container content, preserve head/css
+        // Update UI for HLS viewing
+        this.showHLSViewerUI(status);
+        
+        // Join as viewer via socket
+        this.socket.emit('join-stream-as-viewer');
+        
+        // HLS stream will be started when we receive 'hls-stream-ready' event
+    }
+    
+    showHLSViewerUI(status) {
         const container = document.querySelector('.container');
         if (container) {
             container.innerHTML = 
-                '<h1>Watching Live</h1>' +
+                '<h1>📺 Live Stream</h1>' +
                 '<div class="live-header">' +
                     '<div class="live-indicator">' +
                         '<div class="live-dot"></div>' +
                         '<span>LIVE</span>' +
                     '</div>' +
-                    '<p>Viewing ' + (status.hostName || 'Live Stream') + '</p>' +
-                    '<div class="viewer-count" id="participantCount">' + status.participantCount + ' people connected</div>' +
+                    '<p>Watching ' + (status.hostName || 'Live Stream') + '</p>' +
+                    '<div class="viewer-count" id="participantCount">' + 
+                        status.participantCount + ' people connected' +
+                    '</div>' +
                 '</div>' +
-                '<div id="liveVideoGrid" class="grid">' +
-                    '<div id="loadingMessage" class="video-box">' +
-                        '<div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #ccc;">' +
-                            'Loading participants...' +
+                '<div class="video-container">' +
+                    '<video id="hlsVideo" controls autoplay muted playsinline>' +
+                        'Your browser does not support the video tag.' +
+                    '</video>' +
+                    '<div id="loadingOverlay" class="loading-overlay">' +
+                        '<div class="loading-spinner"></div>' +
+                        '<p>Loading stream...</p>' +
+                    '</div>' +
+                    '<div id="errorOverlay" class="error-overlay" style="display: none;">' +
+                        '<div class="error-message">' +
+                            '<h3>🔴 Stream Error</h3>' +
+                            '<p id="errorText">Unable to load stream</p>' +
+                            '<button id="retryBtn" class="btn">Retry</button>' +
                         '</div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="stream-info">' +
+                    '<div class="participants-list">' +
+                        '<h3>👥 Participants</h3>' +
+                        '<div id="participantsList"></div>' +
+                    '</div>' +
+                    '<div class="stream-stats" id="streamStats">' +
+                        '<h3>📊 Stream Info</h3>' +
+                        '<div class="stat-item"><span>Quality:</span> <span id="qualityInfo">Auto</span></div>' +
+                        '<div class="stat-item"><span>Latency:</span> <span id="latencyInfo">-</span></div>' +
+                        '<div class="stat-item"><span>Buffer:</span> <span id="bufferInfo">-</span></div>' +
                     '</div>' +
                 '</div>' +
                 '<div class="controls">' +
                     '<button id="joinStreamBtn" class="btn">Join Stream</button>' +
                     '<button id="refreshBtn" class="btn">Refresh</button>' +
+                    '<button id="fullscreenBtn" class="btn">Fullscreen</button>' +
                 '</div>';
         }
         
-        // Re-setup event listeners after DOM change
+        // Re-setup event listeners
         this.setupViewerEventListeners();
         
-        // Setup viewer socket events
-        this.setupViewerEvents();
+        // Get video element reference
+        this.videoElement = document.getElementById('hlsVideo');
         
-        // Join as viewer and wait for confirmation
-        console.log('Joining as viewer...');
-        this.socket.emit('join-stream-as-viewer');
-        
-        // Request participant list after a short delay
-        setTimeout(() => {
-            console.log('Requesting fresh participant list...');
-            this.socket.emit('get-participants');
-        }, 1000);
-        
-        // Wait longer before requesting video streams to ensure participants are ready
-        setTimeout(() => {
-            console.log('Starting to request video streams from all participants...');
-            this.requestAllVideoStreams();
-        }, 3000);
+        // Add CSS for video container and overlays
+        this.addViewerStyles();
+    }
+    
+    addViewerStyles() {
+        // Add styles if not already present
+        if (!document.getElementById('hls-viewer-styles')) {
+            const style = document.createElement('style');
+            style.id = 'hls-viewer-styles';
+            style.textContent = `
+                .video-container {
+                    position: relative;
+                    width: 100%;
+                    max-width: 1280px;
+                    margin: 20px auto;
+                    background: #000;
+                    border-radius: 8px;
+                    overflow: hidden;
+                }
+                
+                #hlsVideo {
+                    width: 100%;
+                    height: auto;
+                    min-height: 400px;
+                    background: #000;
+                }
+                
+                .loading-overlay, .error-overlay {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(0, 0, 0, 0.8);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: white;
+                    text-align: center;
+                }
+                
+                .loading-spinner {
+                    width: 50px;
+                    height: 50px;
+                    border: 3px solid #333;
+                    border-top: 3px solid #007bff;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                    margin-bottom: 15px;
+                }
+                
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+                
+                .stream-info {
+                    display: flex;
+                    gap: 20px;
+                    margin: 20px 0;
+                    flex-wrap: wrap;
+                }
+                
+                .participants-list, .stream-stats {
+                    flex: 1;
+                    min-width: 300px;
+                    background: #f8f9fa;
+                    padding: 15px;
+                    border-radius: 8px;
+                }
+                
+                .participants-list h3, .stream-stats h3 {
+                    margin-top: 0;
+                    color: #333;
+                }
+                
+                .participant-item {
+                    padding: 8px 12px;
+                    margin: 5px 0;
+                    background: white;
+                    border-radius: 6px;
+                    border-left: 4px solid #007bff;
+                }
+                
+                .participant-item.host {
+                    border-left-color: #28a745;
+                }
+                
+                .participant-item.guest {
+                    border-left-color: #ffc107;
+                }
+                
+                .stat-item {
+                    display: flex;
+                    justify-content: space-between;
+                    padding: 5px 0;
+                    border-bottom: 1px solid #dee2e6;
+                }
+                
+                .live-dot {
+                    width: 12px;
+                    height: 12px;
+                    background: #dc3545;
+                    border-radius: 50%;
+                    display: inline-block;
+                    margin-right: 8px;
+                    animation: pulse 2s infinite;
+                }
+                
+                @keyframes pulse {
+                    0% { opacity: 1; }
+                    50% { opacity: 0.5; }
+                    100% { opacity: 1; }
+                }
+            `;
+            document.head.appendChild(style);
+        }
     }
     
     setupViewerEventListeners() {
-        // Re-attach event listeners after DOM update
+        // Join stream button
         const joinStreamBtn = document.getElementById('joinStreamBtn');
         if (joinStreamBtn) {
             joinStreamBtn.onclick = () => {
@@ -185,225 +387,169 @@ class StreamsBrowser {
             };
         }
         
+        // Refresh button
         const refreshBtn = document.getElementById('refreshBtn');
         if (refreshBtn) {
             refreshBtn.onclick = () => {
                 this.checkAndJoinStream();
             };
         }
-    }
-    
-    setupViewerEvents() {
-        console.log('Setting up viewer events...');
         
-        this.socket.on('participants-update', (participants) => {
-            console.log('Received participants update:', participants);
-            this.displayLiveParticipants(participants);
-        });
-        
-        this.socket.on('participant-joined', (data) => {
-            console.log('Participant joined event:', data);
-            this.addLiveParticipant(data.participant);
-            
-            // Request video stream from newly joined participant
-            setTimeout(() => {
-                console.log('Requesting video stream from newly joined participant:', data.participant.id);
-                this.requestVideoStream(data.participant.id);
-            }, 2000);
-        });
-        
-        this.socket.on('participant-left', (data) => {
-            console.log('Participant left event:', data);
-            this.removeLiveParticipant(data.participantId);
-        });
-        
-        this.socket.on('participant-count-update', (count) => {
-            console.log('Participant count update:', count);
-            const countEl = document.getElementById('participantCount');
-            if (countEl) {
-                countEl.textContent = count + ' people connected';
-            }
-        });
-        
-        // WebRTC Signaling events for viewers
-        this.socket.on('webrtc-offer', async (data) => {
-            console.log('Viewer received WebRTC offer from:', data.from);
-            await this.handleWebRTCOffer(data);
-        });
-        
-        this.socket.on('webrtc-answer', async (data) => {
-            console.log('Viewer received WebRTC answer from:', data.from);
-            await this.handleWebRTCAnswer(data);
-        });
-        
-        this.socket.on('webrtc-ice-candidate', async (data) => {
-            console.log('Viewer received ICE candidate from:', data.from);
-            await this.handleICECandidate(data);
-        });
-        
-        // Debug: Listen to ALL events
-        this.socket.onAny((event, ...args) => {
-            if (event.includes('webrtc') || event.includes('participant') || event.includes('stream')) {
-                console.log('Received event:', event, args);
-            }
-        });
-    }
-    
-    displayLiveParticipants(participants) {
-        const grid = document.getElementById('liveVideoGrid');
-        if (!grid) {
-            console.error('liveVideoGrid not found in DOM!');
-            return;
+        // Fullscreen button
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        if (fullscreenBtn) {
+            fullscreenBtn.onclick = () => {
+                this.toggleFullscreen();
+            };
         }
         
-        console.log('Displaying participants:', participants);
-        
-        // Clear loading message
-        const loading = document.getElementById('loadingMessage');
-        if (loading) loading.remove();
-        
-        const liveParticipants = participants.filter(p => p.isHost || p.isGuest);
-        console.log('Live participants found:', liveParticipants.length);
-        
-        if (liveParticipants.length === 0) {
-            this.participants.clear();
-            grid.innerHTML = '<div class="video-box">No one is streaming</div>';
-            return;
+        // Retry button
+        const retryBtn = document.getElementById('retryBtn');
+        if (retryBtn) {
+            retryBtn.onclick = () => {
+                this.retryHLSPlayback();
+            };
         }
+    }
+    
+    async startHLSPlayback(playlistUrl, streamInfo) {
+        console.log('Starting HLS playback:', playlistUrl);
+        console.log('Video element:', this.videoElement);
+        console.log('HLS.js available:', typeof Hls !== 'undefined');
+        console.log('HLS.js supported:', typeof Hls !== 'undefined' ? Hls.isSupported() : 'N/A');
         
-        // Check if this is initial load or an update
-        const isInitialLoad = this.participants.size === 0;
-        console.log('Is initial load:', isInitialLoad);
-        
-        if (isInitialLoad) {
-            // Initial load - add all participants
-            console.log('Initial load - adding all participants');
-            grid.innerHTML = ''; // Clear everything
-            this.participants.clear();
+        try {
+            if (!this.videoElement) {
+                throw new Error('Video element not found');
+            }
             
-            liveParticipants.forEach(participant => {
-                this.addLiveParticipant(participant);
+            // Hide loading overlay temporarily
+            this.hideOverlays();
+            
+            // Check if HLS.js is available and supported
+            if (typeof Hls !== 'undefined' && Hls.isSupported()) {
+                console.log('HLS.js is available and supported, initializing...');
+                
+                this.hlsPlayer = new Hls(this.hlsConfig);
+                
+                // Setup HLS.js event listeners
+                this.setupHLSEventListeners();
+                
+                // Load the source
+                this.hlsPlayer.loadSource(playlistUrl);
+                this.hlsPlayer.attachMedia(this.videoElement);
+                
+                console.log('HLS.js initialized and source loaded');
+                
+            } else if (this.videoElement.canPlayType('application/vnd.apple.mpegurl')) {
+                // Safari native HLS support
+                console.log('Using native HLS support (Safari)');
+                this.videoElement.src = playlistUrl;
+                
+                this.videoElement.addEventListener('loadedmetadata', () => {
+                    console.log('Native HLS loaded');
+                    this.hideOverlays();
+                    this.updateStreamStats();
+                });
+                
+                this.videoElement.addEventListener('error', (e) => {
+                    console.error('Native HLS error:', e);
+                    this.showError('Stream playback error');
+                });
+                
+            } else {
+                let errorMsg = 'HLS playback not available. ';
+                if (typeof Hls === 'undefined') {
+                    errorMsg += 'HLS.js library failed to load. ';
+                }
+                errorMsg += 'Your browser may not support HLS streaming.';
+                throw new Error(errorMsg);
+            }
+            
+            // Update stream info
+            this.currentStreamInfo = streamInfo;
+            this.updateStreamStats();
+            
+        } catch (error) {
+            console.error('Error starting HLS playback:', error);
+            this.showError('Failed to start video playback: ' + error.message);
+        }
+    }
+    
+    setupHLSEventListeners() {
+        if (!this.hlsPlayer) return;
+        
+        this.hlsPlayer.on(Hls.Events.MANIFEST_PARSED, () => {
+            console.log('✅ HLS manifest parsed successfully, starting playback');
+            this.hideOverlays();
+            this.videoElement.play().catch(e => {
+                console.warn('Autoplay failed, user interaction required:', e);
+                this.showError('Autoplay blocked. Please click the video to start playback.');
             });
+        });
+        
+        this.hlsPlayer.on(Hls.Events.LEVEL_SWITCHED, (event, data) => {
+            console.log('Quality level switched to:', data.level);
+            this.updateQualityInfo(data.level);
+        });
+        
+        this.hlsPlayer.on(Hls.Events.ERROR, (event, data) => {
+            console.error('HLS.js error:', data);
             
-            // Request all video streams after adding participants
-            setTimeout(() => {
-                console.log('Requesting video streams for all participants...');
-                this.requestAllVideoStreams();
-            }, 2000);
-            
-        } else {
-            // Update - only add new participants, preserve existing ones
-            console.log('Update mode - checking for new participants');
-            
-            const currentParticipantIds = new Set(this.participants.keys());
-            const newParticipantIds = new Set(liveParticipants.map(p => p.id));
-            
-            console.log('Current participants:', Array.from(currentParticipantIds));
-            console.log('New participants list:', Array.from(newParticipantIds));
-            
-            // Remove participants that left
-            for (let participantId of currentParticipantIds) {
-                if (!newParticipantIds.has(participantId)) {
-                    console.log('Removing participant who left:', participantId);
-                    this.removeLiveParticipant(participantId);
+            if (data.fatal) {
+                switch (data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                        console.error('Fatal network error encountered, trying to recover');
+                        this.hlsPlayer.startLoad();
+                        break;
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                        console.error('Fatal media error encountered, trying to recover');
+                        this.hlsPlayer.recoverMediaError();
+                        break;
+                    default:
+                        console.error('Fatal error, destroying HLS instance');
+                        this.showError('Stream playback failed');
+                        break;
                 }
             }
-            
-            // Add new participants only
-            liveParticipants.forEach(participant => {
-                if (!this.participants.has(participant.id)) {
-                    console.log('Adding new participant:', participant.id);
-                    this.addLiveParticipant(participant);
-                    
-                    // Request video stream for new participant
-                    setTimeout(() => {
-                        console.log('Requesting video stream for new participant:', participant.id);
-                        this.requestVideoStream(participant.id);
-                    }, 1000 + Math.random() * 1000);
-                }
-            });
-        }
+        });
+        
+        this.hlsPlayer.on(Hls.Events.FRAG_BUFFERED, () => {
+            this.updateBufferInfo();
+        });
     }
     
-    addLiveParticipant(participant) {
-        const grid = document.getElementById('liveVideoGrid');
-        if (!grid) return;
+    stopHLSPlayback() {
+        console.log('Stopping HLS playback');
         
-        // 🔧 FIX: Prevent duplicates
-        if (this.participants.has(participant.id)) {
-            console.log('Skipping duplicate participant:', participant.id);
-            return;
+        if (this.hlsPlayer) {
+            this.hlsPlayer.destroy();
+            this.hlsPlayer = null;
         }
         
-        console.log('Adding participant to grid:', participant);
+        if (this.videoElement) {
+            this.videoElement.src = '';
+            this.videoElement.load();
+        }
         
-        const videoBox = document.createElement('div');
-        videoBox.className = 'video-box';
-        videoBox.id = 'viewer-participant-' + participant.id;
-        
-        const name = participant.hostName || participant.guestName || 'Participant';
-        const role = participant.isHost ? 'Host' : 'Guest';
-        const icon = participant.isHost ? 'Host' : 'Guest';
-        
-        // Create content container with improved styling
-        const content = document.createElement('div');
-        content.style.cssText = 'display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: white; text-align: center; gap: 8px;';
-        content.innerHTML = 
-            '<div style="font-weight: bold;">' + name + '</div>' +
-            '<div style="font-size: 0.9rem; opacity: 0.8;">(' + role + ')</div>';
-        
-        const nameTag = document.createElement('div');
-        nameTag.className = 'name-tag';
-        nameTag.textContent = icon + ' ' + name;
-        
-        videoBox.appendChild(content);
-        videoBox.appendChild(nameTag);
-        grid.appendChild(videoBox);
-        this.participants.set(participant.id, videoBox);
-        
-        console.log('Added participant, grid now has:', this.participants.size, 'participants');
+        this.currentStreamInfo = null;
     }
     
-    removeLiveParticipant(participantId) {
-        console.log('Removing participant:', participantId);
-        
-        // Remove DOM element
-        const element = this.participants.get(participantId);
-        if (element) {
-            element.remove();
-            this.participants.delete(participantId);
-            console.log('Removed participant from DOM, grid now has:', this.participants.size, 'participants');
-        }
-        
-        // Close and remove peer connection
-        if (this.peerConnections.has(participantId)) {
-            console.log('Closing peer connection for:', participantId);
-            const peerConnection = this.peerConnections.get(participantId);
-            
-            // Properly close the connection
-            if (peerConnection.connectionState !== 'closed') {
-                peerConnection.close();
-            }
-            
-            this.peerConnections.delete(participantId);
-            console.log('Removed peer connection, now have:', this.peerConnections.size, 'connections');
-        }
-        
-        // Check if grid is empty
-        const grid = document.getElementById('liveVideoGrid');
-        if (grid && this.participants.size === 0) {
-            grid.innerHTML = '<div class="video-box">Stream ended</div>';
-        }
+    retryHLSPlayback() {
+        console.log('Retrying HLS playback');
+        this.stopHLSPlayback();
+        this.checkAndJoinStream();
     }
-   
+    
     showBrowseMode() {
         this.isViewing = false;
+        this.stopHLSPlayback();
         
         // Reset to browse mode
         const container = document.querySelector('.container');
         if (container) {
             container.innerHTML = 
-                '<h1>Live Streams</h1>' +
+                '<h1>📺 Live Streams</h1>' +
                 '<div id="streamsList">' +
                     '<div class="empty-state" id="emptyState">' +
                         '<h2>No live streams</h2>' +
@@ -420,240 +566,149 @@ class StreamsBrowser {
         // Re-setup UI events
         this.setupUIEvents();
     }
-
-    // Request video streams from all participants
-    requestAllVideoStreams() {
-        console.log('Requesting video streams from all participants...');
-        const grid = document.getElementById('liveVideoGrid');
-        if (!grid) {
-            console.error('liveVideoGrid not found!');
+    
+    updateParticipantsList(participants) {
+        const participantsList = document.getElementById('participantsList');
+        if (!participantsList) return;
+        
+        console.log('Updating participants list:', participants);
+        
+        participantsList.innerHTML = '';
+        
+        if (participants.length === 0) {
+            participantsList.innerHTML = '<p style="color: #666;">No participants</p>';
             return;
         }
         
-        const participantElements = grid.querySelectorAll('[id^="viewer-participant-"]');
-        console.log('Found ' + participantElements.length + ' participant elements to request streams from');
-        
-        if (participantElements.length === 0) {
-            console.warn('No participant elements found in grid!');
-            console.log('Grid content:', grid.innerHTML);
-        }
-        
-        participantElements.forEach(element => {
-            const participantId = element.id.replace('viewer-participant-', '');
-            console.log('Requesting video stream from participant: ' + participantId);
-            
-            // Add delay between requests to avoid overwhelming
-            setTimeout(() => {
-                this.requestVideoStream(participantId);
-            }, Math.random() * 1000 + 500); // 500ms-1500ms delay
+        participants.forEach(participant => {
+            this.addParticipantToList(participant);
         });
     }
     
-    // WebRTC methods for viewers to receive video streams
-    async requestVideoStream(participantId) {
-        try {
-            console.log('Requesting video stream from participant:', participantId);
-            
-            // Check if we already have a connection
-            if (this.peerConnections.has(participantId)) {
-                const existingConnection = this.peerConnections.get(participantId);
-                console.log('Already have connection to participant:', participantId, 'State:', existingConnection.connectionState);
-                
-                // If connection is failed or closed, remove it and create new one
-                if (existingConnection.connectionState === 'failed' || existingConnection.connectionState === 'closed') {
-                    console.log('Removing failed connection and creating new one for:', participantId);
-                    existingConnection.close();
-                    this.peerConnections.delete(participantId);
-                } else {
-                    // Connection exists and is good
-                    return;
-                }
-            }
-            
-            // Create peer connection for this participant
-            const peerConnection = new RTCPeerConnection(this.rtcConfig);
-            this.peerConnections.set(participantId, peerConnection);
-            
-            // Handle connection state changes
-            peerConnection.onconnectionstatechange = () => {
-                console.log('Connection state with ' + participantId + ':', peerConnection.connectionState);
-                if (peerConnection.connectionState === 'failed') {
-                    console.error('WebRTC connection failed with:', participantId);
-                }
-            };
-            
-            // Handle incoming video stream - CRITICAL FOR VIDEO DISPLAY
-            peerConnection.ontrack = (event) => {
-                console.log('Received video stream from:', participantId);
-                console.log('Stream details:', event.streams[0].getTracks().map(t => ({kind: t.kind, enabled: t.enabled})));
-                const remoteStream = event.streams[0];
-                
-                // Immediately display the video
-                this.displayParticipantVideo(participantId, remoteStream);
-            };
-            
-            // Handle ICE candidates
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    console.log('Sending ICE candidate to participant:', participantId);
-                    this.socket.emit('webrtc-ice-candidate', {
-                        to: participantId,
-                        candidate: event.candidate
-                    });
-                }
-            };
-            
-            // Create offer to receive video
-            const offer = await peerConnection.createOffer({
-                offerToReceiveVideo: true,
-                offerToReceiveAudio: true
-            });
-            await peerConnection.setLocalDescription(offer);
-            
-            console.log('Sending WebRTC offer to participant:', participantId);
-            this.socket.emit('webrtc-offer', {
-                to: participantId,
-                offer: offer
-            });
-            
-        } catch (error) {
-            console.error('Error requesting video stream from', participantId, ':', error);
-        }
-    }
-    
-    async handleWebRTCOffer(data) {
-        try {
-            console.log('Handling WebRTC offer for viewer from:', data.from);
-            
-            const peerConnection = new RTCPeerConnection(this.rtcConfig);
-            this.peerConnections.set(data.from, peerConnection);
-            
-            // Handle incoming video stream
-            peerConnection.ontrack = (event) => {
-                console.log('Received video stream from:', data.from);
-                const remoteStream = event.streams[0];
-                this.displayParticipantVideo(data.from, remoteStream);
-            };
-            
-            // Handle ICE candidates
-            peerConnection.onicecandidate = (event) => {
-                if (event.candidate) {
-                    this.socket.emit('webrtc-ice-candidate', {
-                        to: data.from,
-                        candidate: event.candidate
-                    });
-                }
-            };
-            
-            // Set remote description and create answer
-            await peerConnection.setRemoteDescription(data.offer);
-            const answer = await peerConnection.createAnswer();
-            await peerConnection.setLocalDescription(answer);
-            
-            console.log('Sending WebRTC answer to:', data.from);
-            this.socket.emit('webrtc-answer', {
-                to: data.from,
-                answer: answer
-            });
-            
-        } catch (error) {
-            console.error('Error handling WebRTC offer for viewer:', error);
-        }
-    }
-    
-    async handleWebRTCAnswer(data) {
-        try {
-            console.log('Handling WebRTC answer for viewer from:', data.from);
-            const peerConnection = this.peerConnections.get(data.from);
-            
-            if (peerConnection) {
-                await peerConnection.setRemoteDescription(data.answer);
-                console.log('WebRTC connection established with participant:', data.from);
-            } else {
-                console.error('No peer connection found for:', data.from);
-            }
-            
-        } catch (error) {
-            console.error('Error handling WebRTC answer for viewer:', error);
-        }
-    }
-    
-    async handleICECandidate(data) {
-        try {
-            console.log('Handling ICE candidate for viewer from:', data.from);
-            const peerConnection = this.peerConnections.get(data.from);
-            
-            if (peerConnection) {
-                await peerConnection.addIceCandidate(data.candidate);
-                console.log('ICE candidate added for viewer connection:', data.from);
-            } else {
-                console.error('No peer connection found for ICE candidate from:', data.from);
-            }
-            
-        } catch (error) {
-            console.error('Error handling ICE candidate for viewer:', error);
-        }
-    }
-    
-    displayParticipantVideo(participantId, stream) {
-        console.log('Displaying participant video for viewer:', participantId);
+    addParticipantToList(participant) {
+        const participantsList = document.getElementById('participantsList');
+        if (!participantsList) return;
         
-        const participantElement = document.getElementById('viewer-participant-' + participantId);
-        if (participantElement) {
-            console.log('Found participant element, creating video...');
-            
-            // Create video element
-            const video = document.createElement('video');
-            video.autoplay = true;
-            video.playsInline = true;
-            video.muted = false; // Allow audio for viewers
-            video.style.cssText = 'width: 100%; height: 100%; object-fit: cover; border-radius: 8px;';
-            video.srcObject = stream;
-            
-            // Video event handlers
-            video.onloadedmetadata = () => {
-                console.log('Video metadata loaded for:', participantId);
-            };
-            
-            video.onplaying = () => {
-                console.log('Video is playing for:', participantId);
-            };
-            
-            video.onerror = (e) => {
-                console.error('Video error for', participantId, ':', e);
-            };
-            
-            // Keep the existing name tag
-            const nameTag = participantElement.querySelector('.name-tag');
-            
-            // Replace content with video
-            participantElement.innerHTML = '';
-            participantElement.appendChild(video);
-            if (nameTag) {
-                participantElement.appendChild(nameTag);
-            }
-            
-            // Force video to play (some browsers need this)
-            video.play().catch(e => {
-                console.warn('Video autoplay failed for', participantId, ':', e.message);
-            });
-            
-            console.log('Real video displayed for viewer for participant:', participantId);
-        } else {
-            console.error('Participant element not found for video display:', participantId);
-            console.log('Available elements:', Array.from(document.querySelectorAll('[id^="viewer-participant-"]')).map(el => el.id));
+        const name = participant.hostName || participant.guestName || 'Participant';
+        const role = participant.isHost ? 'host' : 'guest';
+        const icon = participant.isHost ? '👑' : '🎤';
+        
+        const participantDiv = document.createElement('div');
+        participantDiv.className = `participant-item ${role}`;
+        participantDiv.id = `participant-list-${participant.id}`;
+        participantDiv.innerHTML = `${icon} ${name}`;
+        
+        participantsList.appendChild(participantDiv);
+        this.participants.set(participant.id, participantDiv);
+    }
+    
+    removeParticipantFromList(participantId) {
+        const element = this.participants.get(participantId);
+        if (element) {
+            element.remove();
+            this.participants.delete(participantId);
         }
+    }
+    
+    updateParticipantCount(count) {
+        const countEl = document.getElementById('participantCount');
+        if (countEl) {
+            countEl.textContent = count + ' people connected';
+        }
+    }
+    
+    updateStreamStats() {
+        if (!this.currentStreamInfo) return;
+        
+        // Update quality info
+        this.updateQualityInfo();
+        
+        // Update buffer info
+        this.updateBufferInfo();
+        
+        // Update latency info (simplified)
+        const latencyEl = document.getElementById('latencyInfo');
+        if (latencyEl) {
+            latencyEl.textContent = '~3-5s';
+        }
+    }
+    
+    updateQualityInfo(level = null) {
+        const qualityEl = document.getElementById('qualityInfo');
+        if (!qualityEl) return;
+        
+        if (this.hlsPlayer && level !== null) {
+            const levels = this.hlsPlayer.levels;
+            if (levels && levels[level]) {
+                const resolution = `${levels[level].width}x${levels[level].height}`;
+                qualityEl.textContent = resolution;
+            }
+        } else {
+            qualityEl.textContent = 'Auto';
+        }
+    }
+    
+    updateBufferInfo() {
+        const bufferEl = document.getElementById('bufferInfo');
+        if (!bufferEl || !this.videoElement) return;
+        
+        try {
+            const buffered = this.videoElement.buffered;
+            if (buffered.length > 0) {
+                const bufferEnd = buffered.end(buffered.length - 1);
+                const currentTime = this.videoElement.currentTime;
+                const bufferLength = Math.max(0, bufferEnd - currentTime);
+                bufferEl.textContent = `${bufferLength.toFixed(1)}s`;
+            } else {
+                bufferEl.textContent = '0s';
+            }
+        } catch (error) {
+            bufferEl.textContent = '-';
+        }
+    }
+    
+    toggleFullscreen() {
+        if (!this.videoElement) return;
+        
+        if (this.videoElement.requestFullscreen) {
+            this.videoElement.requestFullscreen();
+        } else if (this.videoElement.webkitRequestFullscreen) {
+            this.videoElement.webkitRequestFullscreen();
+        } else if (this.videoElement.mozRequestFullScreen) {
+            this.videoElement.mozRequestFullScreen();
+        }
+    }
+    
+    hideOverlays() {
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const errorOverlay = document.getElementById('errorOverlay');
+        
+        if (loadingOverlay) loadingOverlay.style.display = 'none';
+        if (errorOverlay) errorOverlay.style.display = 'none';
+    }
+    
+    showError(message) {
+        const errorOverlay = document.getElementById('errorOverlay');
+        const errorText = document.getElementById('errorText');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        
+        if (loadingOverlay) loadingOverlay.style.display = 'none';
+        
+        if (errorText) errorText.textContent = message;
+        if (errorOverlay) errorOverlay.style.display = 'flex';
+        
+        console.error('Showing error to user:', message);
     }
 }
 
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM ready, creating StreamsBrowser...');
-    window.streamsBrowser = new StreamsBrowser();
+    console.log('DOM ready, creating HLSStreamsBrowser...');
+    window.hlsStreamsBrowser = new HLSStreamsBrowser();
 });
 
 // Also initialize immediately if DOM is already ready
 if (document.readyState !== 'loading') {
-    console.log('DOM already ready, creating StreamsBrowser...');
-    window.streamsBrowser = new StreamsBrowser();
+    console.log('DOM already ready, creating HLSStreamsBrowser...');
+    window.hlsStreamsBrowser = new HLSStreamsBrowser();
 } 

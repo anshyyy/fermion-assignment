@@ -170,4 +170,72 @@ export interface ITransportOptions {
   enableTcp: boolean;
   preferUdp: boolean;
   initialAvailableOutgoingBitrate?: number;
+}
+
+/**
+ * HLS Stream Configuration
+ * Defines settings for HLS stream generation
+ */
+export interface IHLSStreamConfig {
+  streamId: string;
+  outputPath: string;
+  participantIds: string[];
+  isActive: boolean;
+  startedAt: Date;
+  segmentDuration: number;
+  playlistLength: number;
+}
+
+/**
+ * HLS Stream Info
+ * Contains information about an active HLS stream
+ */
+export interface IHLSStreamInfo {
+  streamId: string;
+  playlistUrl: string;
+  participantCount: number;
+  isLive: boolean;
+  startedAt: Date;
+  duration: number;
+}
+
+/**
+ * Plain Transport Info
+ * Contains information about MediaSoup plain transport for HLS
+ */
+export interface IPlainTransportInfo {
+  id: string;
+  ip: string;
+  port: number;
+  rtcpPort?: number;
+  srtpParameters?: mediasoupTypes.SrtpParameters;
+}
+
+/**
+ * Stream Composition Layout
+ * Defines how multiple participant streams are composed
+ */
+export enum StreamLayout {
+  GRID = 'grid',
+  SIDEBAR = 'sidebar',
+  SPOTLIGHT = 'spotlight',
+  PICTURE_IN_PICTURE = 'pip',
+}
+
+/**
+ * Participant Stream Info
+ * Information about a participant's stream for composition
+ */
+export interface IParticipantStreamInfo {
+  participantId: string;
+  displayName: string;
+  role: UserRole;
+  hasVideo: boolean;
+  hasAudio: boolean;
+  position?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 } 

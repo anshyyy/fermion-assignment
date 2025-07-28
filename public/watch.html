@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Watch Live Stream</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: white;
+            color: black;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            border: 2px solid black;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .live-header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .live-indicator {
+            display: inline-block;
+            border: 2px solid black;
+            padding: 5px 10px;
+            margin: 10px 0;
+        }
+
+        .viewer-count {
+            margin-top: 10px;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            margin: 20px auto;
+            background: black;
+            border: 2px solid black;
+        }
+
+        #hlsVideo {
+            width: 100%;
+            height: auto;
+            min-height: 400px;
+            background: black;
+            display: block;
+        }
+
+        .loading-overlay, .error-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: black;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            text-align: center;
+        }
+
+        .loading-spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid white;
+            border-top: 3px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 15px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            border: 2px solid white;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .stream-info {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .participants-list, .stream-stats {
+            border: 1px solid black;
+            padding: 15px;
+        }
+
+        .participants-list h3, .stream-stats h3 {
+            margin-top: 0;
+            border-bottom: 1px solid black;
+            padding-bottom: 5px;
+        }
+
+        .participant-item {
+            padding: 8px;
+            margin: 5px 0;
+            border: 1px solid black;
+        }
+
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #ccc;
+        }
+
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .btn {
+            background: white;
+            color: black;
+            border: 2px solid black;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .btn:hover {
+            background: black;
+            color: white;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+        }
+
+        .loading-message {
+            text-align: center;
+            padding: 20px;
+            border: 1px solid black;
+            margin: 10px 0;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+                margin: 10px;
+            }
+            
+            .stream-info {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Watch Live Stream</h1>
+        
+        <div class="loading-message" id="loadingMessage">Loading...</div>
+        
+        <div id="streamsList" style="display: none;">
+            <div class="empty-state" id="emptyState">
+                <h2>No live streams</h2>
+                <p>No one is streaming right now</p>
+                <br>
+                <a href="/stream" class="btn">Start Your Stream</a>
+            </div>
+        </div>
+        <div class="controls" id="controlsSection" style="display: none;">
+            <button id="refreshBtn" class="btn">Refresh</button>
+        </div>
+    </div>
+
+    <script>
+        // Load Socket.IO from local server
+        function loadSocketIO() {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = '/socket.io/socket.io.js';
+                script.onload = () => {
+                    console.log('Socket.IO loaded successfully from local server');
+                    resolve();
+                };
+                script.onerror = () => {
+                    console.error('Failed to load Socket.IO from local server');
+                    reject(new Error('Socket.IO loading failed'));
+                };
+                document.head.appendChild(script);
+            });
+        }
+
+        // Load HLS.js
+        function loadHLS() {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = '/hls.min.js';
+                script.onload = () => {
+                    console.log('HLS.js loaded successfully from local server');
+                    resolve();
+                };
+                script.onerror = () => {
+                    console.warn('Local HLS.js failed, trying CDN fallback...');
+                    // Try CDN fallback
+                    const fallbackScript = document.createElement('script');
+                    fallbackScript.src = 'https://cdn.jsdelivr.net/npm/hls.js@1.4.12/dist/hls.min.js';
+                    fallbackScript.onload = () => {
+                        console.log('HLS.js loaded from CDN fallback');
+                        resolve();
+                    };
+                    fallbackScript.onerror = () => {
+                        console.warn('HLS.js failed to load from both local and CDN, will use native HLS if available');
+                        resolve(); // Don't reject, as native HLS might work
+                    };
+                    document.head.appendChild(fallbackScript);
+                };
+                document.head.appendChild(script);
+            });
+        }
+
+        // Load watch client
+        function loadWatchClient() {
+            return new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = '/js/watch-client.js';
+                script.onload = () => {
+                    console.log('Watch client loaded successfully');
+                    resolve();
+                };
+                script.onerror = () => {
+                    console.error('Failed to load watch client');
+                    reject(new Error('Watch client loading failed'));
+                };
+                document.head.appendChild(script);
+            });
+        }
+
+        // Initialize application
+        async function initializeApp() {
+            const loadingMessage = document.getElementById('loadingMessage');
+            const streamsList = document.getElementById('streamsList');
+            const controlsSection = document.getElementById('controlsSection');
+            
+            try {
+                loadingMessage.textContent = 'Loading Socket.IO...';
+                await loadSocketIO();
+                
+                loadingMessage.textContent = 'Loading HLS player...';
+                await loadHLS();
+                
+                loadingMessage.textContent = 'Loading watch client...';
+                await loadWatchClient();
+                
+                // Hide loading message and show content
+                loadingMessage.style.display = 'none';
+                streamsList.style.display = 'block';
+                controlsSection.style.display = 'block';
+                
+                console.log('Watch application initialized successfully');
+                
+            } catch (error) {
+                console.error('Watch application initialization failed:', error);
+                loadingMessage.textContent = 'Failed to load. Please refresh the page.';
+                loadingMessage.style.color = 'red';
+            }
+        }
+
+        // Start initialization when DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApp);
+        } else {
+            initializeApp();
+        }
+    </script>
+</body>
+</html> 
